@@ -8,76 +8,132 @@ import pandas as pd
 
 @dataclass
 class Lot:
-    acquired_at: pd.Timestamp
     quantity: float
     price: float
-    fees_remaining: float = 0.0
+    executed_at: object
+    basis_status: str = "known"
 
 
-def calculate_fifo_realized_pnl(trades: pd.DataFrame) -> pd.DataFrame:
+def calculate_fifo_realized_pnl(trades: pd.DataFrame, allow_unmatched_sells: bool = False) -> pd.DataFrame:
+    """Calculate realized P&L using FIFO.
+
+    Supports side values:
+    - buy
+    - sell
+    - starting_lot
+
+    By default, oversells raise ValueError.
+
+    If allow_unmatched_sells=True, an unmatched sell portion is reported with
+    basis_status='unknown_unmatched_sell' and realized_pnl=0.0 rather than
+    crashing. This is useful for partial historical exports or transfers with
+    missing basis.
+    """
+    columns = [
+        "executed_at",
+        "symbol",
+        "side",
+        "quantity",
+        "sell_price",
+        "buy_price",
+        "matched_quantity",
+        "proceeds",
+        "cost_basis",
+        "realized_pnl",
+        "basis_status",
+        "source_file",
+    ]
+
+    if trades.empty:
+        return pd.DataFrame(columns=columns)
+
     lots: dict[str, deque[Lot]] = defaultdict(deque)
-    realized_rows: list[dict[str, object]] = []
+    rows: list[dict] = []
 
-    ordered = trades.sort_values(["executed_at", "symbol"]).reset_index(drop=True)
-    for _, trade in ordered.iterrows():
+    work = trades.copy()
+    work["executed_at"] = pd.to_datetime(work["executed_at"], errors="coerce")
+    work = work.sort_values(["executed_at", "symbol", "side"]).reset_index(drop=True)
+
+    for _, trade in work.iterrows():
         symbol = str(trade["symbol"]).upper()
         side = str(trade["side"]).lower()
-        quantity = float(trade["quantity"])
+        qty = float(trade["quantity"])
         price = float(trade["price"])
-        fees = float(trade.get("fees", 0.0) or 0.0)
+        source_file = trade.get("source_file", "")
 
-        if side == "buy":
-            lots[symbol].append(Lot(trade["executed_at"], quantity, price, fees))
+        if qty <= 0:
+            continue
+
+        if side in {"buy", "starting_lot"}:
+            basis_status = "unknown" if side == "starting_lot" and price == 0 else "known"
+            lots[symbol].append(
+                Lot(
+                    quantity=qty,
+                    price=price,
+                    executed_at=trade["executed_at"],
+                    basis_status=basis_status,
+                )
+            )
             continue
 
         if side != "sell":
             continue
 
-        remaining = quantity
-        sell_fee_remaining = fees
+        remaining = qty
+
         while remaining > 1e-12 and lots[symbol]:
             lot = lots[symbol][0]
             matched = min(remaining, lot.quantity)
-            buy_fee = lot.fees_remaining * (matched / lot.quantity) if lot.quantity else 0.0
-            sell_fee = sell_fee_remaining * (matched / remaining) if remaining else 0.0
+
             proceeds = matched * price
             cost_basis = matched * lot.price
-            realized_rows.append(
+            realized_pnl = proceeds - cost_basis
+
+            rows.append(
                 {
+                    "executed_at": trade["executed_at"],
                     "symbol": symbol,
-                    "acquired_at": lot.acquired_at,
-                    "sold_at": trade["executed_at"],
+                    "side": "sell",
                     "quantity": matched,
-                    "buy_price": lot.price,
                     "sell_price": price,
-                    "cost_basis": cost_basis + buy_fee,
-                    "proceeds": proceeds - sell_fee,
-                    "realized_pnl": (proceeds - sell_fee) - (cost_basis + buy_fee),
-                    "holding_days": (trade["executed_at"] - lot.acquired_at).days,
+                    "buy_price": lot.price,
+                    "matched_quantity": matched,
+                    "proceeds": proceeds,
+                    "cost_basis": cost_basis,
+                    "realized_pnl": realized_pnl,
+                    "basis_status": lot.basis_status,
+                    "source_file": source_file,
                 }
             )
+
             lot.quantity -= matched
-            lot.fees_remaining -= buy_fee
             remaining -= matched
-            sell_fee_remaining -= sell_fee
+
             if lot.quantity <= 1e-12:
                 lots[symbol].popleft()
 
-        if remaining > 1e-9:
-            raise ValueError(f"Sell quantity exceeds available FIFO lots for {symbol}: {remaining:g}")
+        if remaining > 1e-12:
+            if not allow_unmatched_sells:
+                raise ValueError(f"Sell quantity exceeds available FIFO lots for {symbol}: {remaining:g}")
 
-    return pd.DataFrame(
-        realized_rows,
-        columns=[
-            "symbol",
-            "acquired_at",
-            "sold_at",
-            "quantity",
-            "buy_price",
-            "sell_price",
-            "cost_basis",
-            "proceeds",
-            "realized_pnl",
-            "holding_days",
-        ],
-    )
+            # Partial exports can contain sells for positions opened before the file.
+            # Keep the pipeline alive and flag these explicitly.
+            proceeds = remaining * price
+            rows.append(
+                {
+                    "executed_at": trade["executed_at"],
+                    "symbol": symbol,
+                    "side": "sell",
+                    "quantity": remaining,
+                    "sell_price": price,
+                    "buy_price": 0.0,
+                    "matched_quantity": remaining,
+                    "proceeds": proceeds,
+                    "cost_basis": 0.0,
+                    "realized_pnl": 0.0,
+                    "basis_status": "unknown_unmatched_sell",
+                    "source_file": source_file,
+                }
+            )
+
+    return pd.DataFrame(rows, columns=columns)
