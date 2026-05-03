@@ -16,15 +16,26 @@ from pathlib import Path
 
 import numpy as np
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from trading_lab.config import TradingConfig, load_trading_config
 
 REPORT_DIR = Path("data/reports")
 OUT_DIR = Path("data/reports/plots")
 
 
-def plot_model_dashboard(report_dir: Path = REPORT_DIR, out_dir: Path = OUT_DIR) -> list[Path]:
+def plot_model_dashboard(
+    report_dir: Path = REPORT_DIR,
+    out_dir: Path = OUT_DIR,
+    config: TradingConfig | None = None,
+) -> list[Path]:
+    cfg = config or load_trading_config()
+    traded = cfg.traded_symbol.upper()
+    benchmark = cfg.benchmark_symbol.upper()
     out_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
 
@@ -39,7 +50,7 @@ def plot_model_dashboard(report_dir: Path = REPORT_DIR, out_dir: Path = OUT_DIR)
         ax.plot(preds["date"], preds["random_forest_proba"], label="RF probability")
         ax.axhline(0.50, linestyle="--", label="0.50 selected threshold")
         ax.axhline(0.60, linestyle=":", label="0.60 stronger signal")
-        ax.set_title("TQQQ model probability history")
+        ax.set_title(f"{traded} model probability history")
         ax.set_xlabel("Date")
         ax.set_ylabel("Probability")
         ax.legend()
@@ -57,9 +68,15 @@ def plot_model_dashboard(report_dir: Path = REPORT_DIR, out_dir: Path = OUT_DIR)
 
         out = out_dir / "strategy_equity_curves.png"
         fig, ax = plt.subplots(figsize=(12, 6))
+        labels = {
+            "always_tqqq": f"Always {traded}",
+            "qqq_20_50_filter": f"{benchmark} 20/50 filter",
+            "rf_prob_ge_0.60": "RF probability >= 0.60",
+            "rf_prob_ge_0.55": "RF probability >= 0.55",
+        }
         for col in ["always_tqqq", "qqq_20_50_filter", "rf_prob_ge_0.60", "rf_prob_ge_0.55"]:
             if col in curves.columns:
-                ax.plot(curves["date"], curves[col], label=col)
+                ax.plot(curves["date"], curves[col], label=labels[col])
         ax.set_title("Strategy equity curves")
         ax.set_xlabel("Date")
         ax.set_ylabel("Equity multiple")

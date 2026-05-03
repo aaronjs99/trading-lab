@@ -199,7 +199,7 @@ def main() -> None:
     import yaml
 
     from trading_lab.config import TradingColumns, load_trading_config
-    from trading_lab.signals.allocation import recommend_allocation
+    from trading_lab.signals.allocation import display_action, recommend_allocation
     from trading_lab.signals.ladder import build_tqqq_ladder
 
     parser = ArgumentParser()
@@ -256,6 +256,9 @@ def main() -> None:
         qqq_dist_ma20=float(latest_features[cols.benchmark_dist_ma_20]),
         qqq_dist_ma50=float(latest_features[cols.benchmark_dist_ma_50]),
         tqqq_drawdown_20d=float(latest_features[cols.traded_drawdown_20d]),
+        traded_symbol=trading_cfg.traded_symbol,
+        benchmark_symbol=trading_cfg.benchmark_symbol,
+        core_symbol=trading_cfg.core_symbol,
     )
 
     ladder = build_tqqq_ladder(
@@ -275,7 +278,7 @@ def main() -> None:
     print("== Order reconciliation ==")
     print(f"Using orders: {orders_path}")
     print(f"Assumed account value: ${account_value:,.2f}")
-    print(f"Signal: {signal.action}")
+    print(f"Signal: {display_action(signal.action, trading_cfg.traded_symbol, trading_cfg.core_symbol)}")
     print(f"{trading_cfg.traded_upper}: ${current_price:.2f}")
     print(f"Max {trading_cfg.traded_upper} allocation: {signal.max_tqqq_allocation:.1%}")
     print()

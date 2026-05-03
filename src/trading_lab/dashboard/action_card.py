@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from trading_lab.config import TradingColumns, load_trading_config
-from trading_lab.signals.allocation import recommend_allocation
+from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
+from trading_lab.signals.allocation import display_action, recommend_allocation
 from trading_lab.signals.ladder import build_tqqq_ladder
 
 
@@ -13,8 +13,8 @@ OUT_MD = Path("data/reports/action_card.md")
 OUT_CSV = Path("data/reports/action_card.csv")
 
 
-def build_action_card() -> pd.DataFrame:
-    cfg = load_trading_config()
+def build_action_card(config: TradingConfig | None = None) -> pd.DataFrame:
+    cfg = config or load_trading_config()
     cols = TradingColumns(cfg)
 
     features = pd.read_csv("data/processed/market/market_features.csv")
@@ -41,6 +41,9 @@ def build_action_card() -> pd.DataFrame:
         qqq_dist_ma20=benchmark_ext20,
         qqq_dist_ma50=float(latest[cols.benchmark_dist_ma_50]),
         tqqq_drawdown_20d=float(latest[cols.traded_drawdown_20d]),
+        traded_symbol=cfg.traded_symbol,
+        benchmark_symbol=cfg.benchmark_symbol,
+        core_symbol=cfg.core_symbol,
     )
 
     ladder = build_tqqq_ladder(
@@ -53,7 +56,7 @@ def build_action_card() -> pd.DataFrame:
         {
             "section": "decision",
             "item": "action",
-            "value": allocation.action,
+            "value": display_action(allocation.action, cfg.traded_symbol, cfg.core_symbol),
             "detail": allocation.reason,
         },
         {
@@ -89,12 +92,13 @@ def build_action_card() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def write_action_card() -> pd.DataFrame:
+def write_action_card(config: TradingConfig | None = None) -> pd.DataFrame:
     OUT_MD.parent.mkdir(parents=True, exist_ok=True)
-    card = build_action_card()
+    cfg = config or load_trading_config()
+    card = build_action_card(cfg)
     card.to_csv(OUT_CSV, index=False)
 
-    lines = ["# Daily Action Card", ""]
+    lines = [f"# Daily Action Card: {cfg.traded_symbol.upper()} / {cfg.benchmark_symbol.upper()}", ""]
     for _, row in card.iterrows():
         lines.append(f"- **{row['section']} / {row['item']}**: {row['value']} — {row['detail']}")
 

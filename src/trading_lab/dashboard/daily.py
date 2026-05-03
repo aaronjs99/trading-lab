@@ -6,7 +6,7 @@ import pandas as pd
 
 from trading_lab.config import TradingColumns, load_trading_config
 from trading_lab.dashboard.personal_edge import build_personal_edge_summary
-from trading_lab.signals.allocation import recommend_allocation
+from trading_lab.signals.allocation import display_action, recommend_allocation
 from trading_lab.signals.ladder import build_tqqq_ladder
 from trading_lab.strategy.select import select_strategy
 
@@ -81,6 +81,9 @@ def build_daily_decision_summary() -> str:
         qqq_dist_ma20=benchmark_ext20,
         qqq_dist_ma50=benchmark_ext50,
         tqqq_drawdown_20d=traded_dd20,
+        traded_symbol=cfg.traded_symbol,
+        benchmark_symbol=cfg.benchmark_symbol,
+        core_symbol=cfg.core_symbol,
     )
 
     ladder = build_tqqq_ladder(
@@ -104,7 +107,7 @@ def build_daily_decision_summary() -> str:
         f"{cfg.benchmark_symbol} distance from 20DMA: {_fmt_pct(benchmark_ext20)}",
         f"{cfg.benchmark_symbol} distance from 50DMA: {_fmt_pct(benchmark_ext50)}",
         f"{cfg.traded_symbol} drawdown from 20d high: {_fmt_pct(traded_dd20)}",
-        f"Suggested action: {allocation.action}",
+        f"Suggested action: {display_action(allocation.action, cfg.traded_symbol, cfg.core_symbol)}",
         f"Max {cfg.traded_symbol} allocation: {allocation.max_tqqq_allocation:.0%}",
         f"Max {cfg.core_symbol} allocation: {allocation.max_spy_allocation:.0%}",
         f"Reason: {allocation.reason}",

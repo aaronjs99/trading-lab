@@ -16,7 +16,7 @@ def build_tqqq_ladder(
     max_tqqq_allocation: float,
     action: str,
 ) -> list[LadderOrder]:
-    """Build a simple TQQQ dip-buy ladder from current price and max allocation.
+    """Build a simple traded-symbol dip-buy ladder from current price and max allocation.
 
     allocation_fraction is fraction of total account value, not fraction of cash.
     """
