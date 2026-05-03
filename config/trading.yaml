@@ -1,0 +1,12 @@
+symbols:
+  traded: TQQQ
+  benchmark: QQQ
+  core: SPY
+  inverse: SQQQ
+
+account:
+  value: 5000.0
+
+allocation:
+  max_traded_allocation_wait: 0.05
+  max_core_allocation_wait: 0.50

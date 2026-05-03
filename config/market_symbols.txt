@@ -1,0 +1,25 @@
+# Core index / leveraged
+SPY
+QQQ
+TQQQ
+SQQQ
+
+# Tech / semiconductor context
+SMH
+SOXX
+XLK
+
+# Mega-cap market drivers
+AAPL
+MSFT
+NVDA
+AMD
+AVGO
+TSLA
+META
+AMZN
+GOOGL
+
+# High-beta watchlist
+PLTR
+HOOD
