@@ -7,6 +7,7 @@ import pandas as pd
 
 from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
 from trading_lab.config.targets import PredictionTarget, default_prediction_targets
+from trading_lab.features.targets import add_prediction_target
 from trading_lab.features.targets import target_column as feature_target_column
 
 
@@ -66,6 +67,12 @@ def target_column(target: PredictionTarget) -> str:
     return feature_target_column(target)
 
 
+def ensure_target_column(df: pd.DataFrame, target: PredictionTarget) -> pd.DataFrame:
+    if target_column(target) in df.columns:
+        return df
+    return add_prediction_target(df, target)
+
+
 def supervised_frame(
     df: pd.DataFrame,
     target: PredictionTarget | None = None,
@@ -73,6 +80,7 @@ def supervised_frame(
 ) -> tuple[pd.DataFrame, list[str], str]:
     cfg = _config(config)
     selected_target = target or primary_prediction_target(cfg)
+    df = ensure_target_column(df, selected_target)
     target_col = target_column(selected_target)
     features = feature_columns(df, cfg)
 

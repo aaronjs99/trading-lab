@@ -1,6 +1,7 @@
 import pandas as pd
 
 from trading_lab.config import TradingConfig
+from trading_lab.config.targets import PredictionTarget
 from trading_lab.models.dataset import (
     feature_columns,
     latest_feature_row,
@@ -62,3 +63,21 @@ def test_latest_feature_row_and_time_splits_are_chronological():
     assert latest.iloc[0]["date"] == pd.Timestamp("2024-01-06")
     assert train["date"].max() < test["date"].min()
     assert len(folds) == 2
+
+
+def test_supervised_frame_generates_missing_selected_target_column():
+    config = TradingConfig(traded_symbol="SOXL", benchmark_symbol="XLK")
+    target = PredictionTarget(
+        name="soxl_5d_threshold",
+        symbol="SOXL",
+        horizon_days=2,
+        up_threshold=0.10,
+        down_threshold=-0.05,
+        mode="threshold_horizon_return",
+    )
+
+    work, _, target_col = supervised_frame(_frame(), target=target, config=config)
+
+    assert target_col == "SOXL_threshold_horizon_return_up10pct_2d"
+    assert target_col in work.columns
+    assert set(work["target"].unique()).issubset({0, 1})

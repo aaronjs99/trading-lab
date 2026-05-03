@@ -18,6 +18,9 @@ class TradingConfig:
     account_value: float = 5000.0
     max_traded_allocation_wait: float = 0.05
     max_core_allocation_wait: float = 0.50
+    use_experiment_selected_target: bool = False
+    selected_target_mode: str | None = None
+    selected_target_name: str | None = None
 
     @property
     def traded_upper(self) -> str:
@@ -36,6 +39,7 @@ def load_trading_config(path: Path = DEFAULT_CONFIG_PATH) -> TradingConfig:
     symbols = data.get("symbols", {})
     account = data.get("account", {})
     allocation = data.get("allocation", {})
+    modeling = data.get("modeling", {})
 
     return TradingConfig(
         traded_symbol=str(symbols.get("traded", TradingConfig.traded_symbol)),
@@ -49,4 +53,12 @@ def load_trading_config(path: Path = DEFAULT_CONFIG_PATH) -> TradingConfig:
         max_core_allocation_wait=float(
             allocation.get("max_core_allocation_wait", TradingConfig.max_core_allocation_wait)
         ),
+        use_experiment_selected_target=bool(
+            modeling.get(
+                "use_experiment_selected_target",
+                TradingConfig.use_experiment_selected_target,
+            )
+        ),
+        selected_target_mode=modeling.get("selected_target_mode"),
+        selected_target_name=modeling.get("selected_target_name"),
     )
