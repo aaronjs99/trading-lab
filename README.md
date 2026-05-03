@@ -1,80 +1,346 @@
 # trading-lab
 
-Python research repo for reconstructing Robinhood trading history, analyzing realized P&L and behavioral edge, and backtesting a long-biased TQQQ/SPY ladder strategy.
+`trading-lab` is a local research and decision-support toolkit for studying short-term leveraged ETF trading workflows, especially TQQQ/QQQ-style setups. It combines market-data ingestion, feature generation, regime modeling, walk-forward strategy evaluation, personal trade-history analysis, dashboard reports, plots, and order-reconciliation helpers.
 
-This repo is intentionally research-only. It does not include live trading or broker API order placement.
+The project is designed as a research lab, not an automated trading bot. It produces probabilities, diagnostics, action cards, allocation suggestions, and risk checks, while deliberately keeping final trading decisions manual.
 
-## Privacy Rules
+## Current status
 
-The entire `data/` folder is gitignored. Do not commit raw CSVs, processed ledgers, reports, plots, brokerage data, or private financial data.
+This repository is at a clean modular baseline:
 
-Tracked files should stay limited to code, tests, configs, docs, and safe examples.
+- Source logic lives under `src/trading_lab/`.
+- Scripts in `scripts/` are intentionally thin wrappers.
+- Generated/private data is ignored and should not be committed.
+- Daily workflow, tests, model diagnostics, plots, and audit tooling are integrated.
+- The current default model is explicitly flagged as degraded/weak against a trusted baseline, so the system warns against over-trusting the live signal.
 
-## Setup
+The workflow is intentionally conservative: a model probability alone is not treated as actionable unless model quality, strategy eligibility, trend context, and allocation constraints agree.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-```
+## Key capabilities
 
-Create local data folders:
+### Market data pipeline
 
-```powershell
-New-Item -ItemType Directory -Force data\raw\robinhood, data\processed, data\reports
-```
+- Downloads and caches daily market data.
+- Skips downloads when local market CSVs were already refreshed that day.
+- Builds market features from configured symbols.
+- Uses config-backed traded and benchmark symbols rather than hardcoding TQQQ/QQQ throughout the codebase.
 
-Export your Robinhood CSVs locally and place them under:
+Default watchlist includes broad index, leveraged/inverse, sector, and large-cap symbols such as:
+
+- SPY
+- QQQ
+- TQQQ
+- SQQQ
+- SMH
+- SOXX
+- XLK
+- AAPL
+- MSFT
+- NVDA
+- AMD
+- AVGO
+- TSLA
+- META
+- AMZN
+- GOOGL
+- PLTR
+- HOOD
+
+### Feature generation
+
+The feature builder creates price, trend, volatility, moving-average-distance, drawdown, and prediction-target columns. Prediction targets are represented by config-backed `PredictionTarget` objects.
+
+Current default targets:
+
+- TQQQ hits +5% before -5% within 5 trading days.
+- TQQQ hits +8% before -8% within 10 trading days.
+
+These are defaults, not intended as permanent hardcoded assumptions.
+
+### Modeling
+
+The repo includes:
+
+- Regime model training.
+- Latest signal scoring.
+- Multi-horizon probability scoring.
+- Model-zoo evaluation.
+- Selected-model scoring.
+- Model quality gate.
+- Trusted baseline comparison.
+- Model degradation diagnostics.
+
+The model quality gate checks whether the selected model is good enough to trust. It currently reports caution when validation metrics are weak.
+
+### Backtesting and strategy selection
+
+The repo supports:
+
+- Daily regime strategy backtests.
+- Event strategy backtests.
+- Walk-forward strategy optimization.
+- Strategy selection with safeguards for infinite or unstable profit-factor values.
+- Eligibility checks for live action.
+
+Strategy selection is intentionally conservative and can fall back when strict filters fail, instead of crashing or blindly selecting unstable rows.
+
+### Personal trading analysis
+
+The Robinhood pipeline can ingest exported trade history and generate:
+
+- Normalized trade ledger.
+- FIFO realized P&L.
+- Positions.
+- Symbol/bucket summaries.
+- Personal edge summaries.
+
+Private CSVs and generated reports are ignored and should stay local.
+
+### Daily dashboard
+
+The daily workflow generates:
+
+- Full decision summary.
+- Concise action card.
+- Multi-horizon probabilities.
+- Selected prediction model summary.
+- Model quality gate.
+- Model comparison/degradation report.
+- Personal trading edge summary.
+- Suggested TQQQ ladder.
+- Order reconciliation checks.
+- Dashboard plots.
+
+The concise action card is intended for quick daily use.
+
+### Plots
+
+The dashboard generates plots under `data/reports/plots/`, including:
+
+- TQQQ price context.
+- QQQ regime context.
+- TQQQ drawdown context.
+- Model probability history.
+- Strategy equity curves.
+- Walk-forward top strategies.
+
+Generated plots are local artifacts and are not tracked.
+
+## Repository layout
 
 ```text
-data/raw/robinhood/
+config/
+  account.yaml
+  market_symbols.txt
+  trading.yaml
+
+scripts/
+  Thin command wrappers for workflows and reports.
+
+src/trading_lab/
+  backtests/      Backtest engines and walk-forward optimization.
+  cli/            Command-center entrypoints.
+  config/         Trading symbols, settings, target definitions, column helpers.
+  dashboard/      Daily summary and action card generation.
+  data/           Market data download/cache utilities.
+  devtools/       Audit, cleanup, debug snapshot helpers.
+  features/       Market feature and target-column generation.
+  models/         Training, model zoo, live scoring, quality, comparison, diagnostics.
+  plots/          Dashboard and model plotting.
+  reports/        Robinhood/trade-history reports.
+  signals/        Allocation, ladder, order parsing/reconciliation, regime signals.
+  strategy/       Strategy selection and eligibility.
+  workflows/      Orchestration modules.
+
+tests/
+  Unit and smoke tests for the modular components.
 ```
 
-The loader is flexible: it inspects CSV columns and normalizes common fields such as symbol, side, quantity, price, amount, fees, and executed timestamp.
+## Quick start
 
-## Scripts
+### 1. Clone and enter the repo
 
-Ingest Robinhood CSVs and build normalized trade, realized P&L, and position files:
-
-```powershell
-python scripts/ingest_robinhood.py --input data/raw/robinhood --output data/processed
+```bash
+git clone https://github.com/aaronjs99/trading-lab.git
+cd trading-lab
 ```
 
-Download market data:
+### 2. Create a Python environment
 
-```powershell
-python scripts/download_market_data.py --symbols SPY TQQQ --start 2018-01-01 --output data/processed/market_data.csv
+The project has been developed with Python 3.13 via Miniconda, but any compatible modern Python environment should work if dependencies install cleanly.
+
+```bash
+python -m pip install -e .
 ```
 
-Run edge summary report:
+If your environment does not install test/model dependencies automatically, install the expected scientific stack:
 
-```powershell
-python scripts/run_edge_report.py --trades data/processed/normalized_trades.csv --output data/reports
+```bash
+python -m pip install pandas numpy scikit-learn matplotlib yfinance pytest pyyaml
 ```
 
-Run TQQQ/SPY ladder backtest skeleton:
+### 3. Run tests
 
-```powershell
-python scripts/run_tqqq_backtest.py --market-data data/processed/market_data.csv --output data/reports
+```bash
+./scripts/tl_test.sh
 ```
 
-## Tests
+### 4. Run the full daily workflow
 
-```powershell
-pytest
+```bash
+./scripts/tl_full_daily.sh
 ```
 
-## Current Scope
+### 5. Show compact status/action card
 
-- Flexible Robinhood CSV ingestion
-- FIFO realized P&L
-- Position reconstruction
-- Basic summary report by symbol
-- Simple long-biased TQQQ ladder backtest skeleton
+```bash
+./scripts/tl_command.sh card
+```
 
-## Not Included
+### 6. Show full status
 
-- Live trading
-- Broker API order placement
-- Private financial data
-- Generated reports or plots in git
+```bash
+./scripts/tl_status.sh
+```
+
+### 7. Regenerate plots
+
+```bash
+python scripts/plot_dashboard.py
+python scripts/plot_model_dashboard.py
+```
+
+## Common commands
+
+```bash
+# Full daily workflow
+./scripts/tl_full_daily.sh
+
+# Full saved status
+./scripts/tl_status.sh
+
+# Compact action card
+./scripts/tl_command.sh card
+
+# Update market data only
+python scripts/update_market_data.py
+
+# Build market features only
+python scripts/build_market_features.py
+
+# Train regime model
+python scripts/train_regime_model.py
+
+# Score latest regime
+python scripts/score_latest_regime.py
+
+# Score multi-horizon signals
+python scripts/score_multi_horizon.py
+
+# Run model zoo
+python scripts/run_model_zoo.py
+
+# Run model quality gate
+python scripts/model_quality_gate.py
+
+# Compare current model to trusted baseline
+python scripts/model_compare.py
+
+# Generate model degradation diagnostics
+python scripts/model_diagnostics.py
+
+# Run repo audit
+python scripts/audit_repo.py
+
+# Remove local Python cruft
+python scripts/clean_cruft.py
+```
+
+## Configuration
+
+Main configuration files live in `config/`.
+
+### `config/trading.yaml`
+
+Defines the core trading setup, including:
+
+- core symbol
+- benchmark symbol
+- traded symbol
+- inverse symbol
+
+The default setup is centered on SPY/QQQ/TQQQ/SQQQ.
+
+### `config/market_symbols.txt`
+
+Defines the market symbols downloaded and used for feature generation.
+
+### `config/account.yaml`
+
+Stores local account assumptions used for allocation/order-reconciliation logic. Do not put sensitive credentials here.
+
+## Generated data and privacy
+
+Generated and private files should stay out of git. The repo is intended to ignore local data such as:
+
+```text
+data/
+data/raw/
+data/processed/
+data/reports/
+*.csv trade exports
+plots
+local caches
+```
+
+Before pushing publicly, run:
+
+```bash
+git ls-files | grep -Ei '(^data/|robinhood|\.csv$|\.xlsx$|\.env|secret|token|password|key|credential)' || true
+python scripts/audit_repo.py
+```
+
+If anything private appears, remove it from git before publishing.
+
+## Design principles
+
+### Manual-first
+
+This project does not place trades. It produces structured decision support.
+
+### Conservative by default
+
+Weak models should warn, not encourage action. The model quality gate and baseline comparison are part of the decision process.
+
+### Config-driven
+
+Symbols and prediction targets should come from configuration objects, not scattered string literals.
+
+### Modular source, thin scripts
+
+Business logic belongs in `src/trading_lab/`. Scripts should be thin entrypoints.
+
+### Research transparency
+
+The pipeline reports model quality, degradation, diagnostics, strategy selection, and eligibility so that model outputs are auditable.
+
+## Current model caveat
+
+The current generalized feature builder changed the effective training/target window. The repository now correctly reports that the selected model is degraded against the trusted baseline. That is expected and useful: the next research step is to compare target-label semantics and recover model quality while preserving modularity.
+
+Likely next experiments:
+
+- Compare barrier-first-hit targets against horizon-return targets.
+- Recover larger usable training windows.
+- Improve feature-target alignment.
+- Re-evaluate model-zoo metrics.
+- Add richer validation dashboards.
+- Avoid overfitting to short recent windows.
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE`.
+
+## Disclaimer
+
+This repository is for research, education, and personal decision support only. It is not financial advice, investment advice, or an automated trading system. Leveraged ETFs such as TQQQ and inverse ETFs such as SQQQ involve substantial risk, path dependence, volatility decay, and potential for large drawdowns. Use at your own risk.
