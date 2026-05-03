@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from trading_lab.backtest import LadderConfig, run_tqqq_ladder_backtest
+from trading_lab.backtests.ladder import LadderConfig, run_tqqq_ladder_backtest
 from trading_lab.metrics import equity_curve_metrics, summarize_realized_by_symbol
 
 
