@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from trading_lab.config import TradingConfig, load_trading_config
 from trading_lab.strategy.select import StrategySelection
 
 
@@ -16,8 +17,10 @@ def check_strategy_eligibility(
     rf_probability: float,
     qqq_uptrend: bool,
     qqq_dist_ma20: float,
+    config: TradingConfig | None = None,
 ) -> EligibilityResult:
     reasons: list[str] = []
+    benchmark = (config or load_trading_config()).benchmark_symbol.upper()
 
     if rf_probability >= selection.threshold:
         reasons.append(f"OK: RF probability {rf_probability:.3f} >= threshold {selection.threshold:.2f}")
@@ -26,21 +29,21 @@ def check_strategy_eligibility(
 
     if selection.require_trend:
         if qqq_uptrend:
-            reasons.append("OK: QQQ trend required and current trend is true")
+            reasons.append(f"OK: {benchmark} trend required and current trend is true")
         else:
-            reasons.append("NO: QQQ trend required but current trend is false")
+            reasons.append(f"NO: {benchmark} trend required but current trend is false")
     else:
-        reasons.append("OK: QQQ trend not required")
+        reasons.append(f"OK: {benchmark} trend not required")
 
     if selection.max_ext20 is None:
-        reasons.append("OK: no QQQ 20DMA extension cap")
+        reasons.append(f"OK: no {benchmark} 20DMA extension cap")
     elif qqq_dist_ma20 <= selection.max_ext20:
         reasons.append(
-            f"OK: QQQ 20DMA extension {qqq_dist_ma20:.2%} <= cap {selection.max_ext20:.2%}"
+            f"OK: {benchmark} 20DMA extension {qqq_dist_ma20:.2%} <= cap {selection.max_ext20:.2%}"
         )
     else:
         reasons.append(
-            f"NO: QQQ 20DMA extension {qqq_dist_ma20:.2%} > cap {selection.max_ext20:.2%}"
+            f"NO: {benchmark} 20DMA extension {qqq_dist_ma20:.2%} > cap {selection.max_ext20:.2%}"
         )
 
     eligible = all(reason.startswith("OK:") for reason in reasons)

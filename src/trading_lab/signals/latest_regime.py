@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+
+from trading_lab.models.dataset import (
+    feature_columns,
+    latest_feature_row,
+    load_market_features,
+    supervised_frame,
+)
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -12,44 +18,16 @@ OUT_PATH = Path("data/reports/latest_regime_signal.csv")
 
 
 def regime_feature_columns(df: pd.DataFrame) -> list[str]:
-    return [
-        c
-        for c in df.columns
-        if (
-            c.startswith("SPY_ret_")
-            or c.startswith("QQQ_ret_")
-            or c.startswith("TQQQ_ret_")
-            or c.startswith("SPY_dist_ma_")
-            or c.startswith("QQQ_dist_ma_")
-            or c.startswith("TQQQ_dist_ma_")
-            or c.startswith("SPY_vol_")
-            or c.startswith("QQQ_vol_")
-            or c.startswith("TQQQ_vol_")
-            or c.startswith("SPY_drawdown_")
-            or c.startswith("QQQ_drawdown_")
-            or c.startswith("TQQQ_drawdown_")
-            or c == "QQQ_uptrend_20_50"
-        )
-    ]
+    return feature_columns(df)
 
 
 def score_latest_regime(
     feature_path: Path = FEATURE_PATH,
     out_path: Path = OUT_PATH,
 ) -> pd.DataFrame:
-    df = pd.read_csv(feature_path)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    target_col = "TQQQ_hit_up_before_down_5d"
-    feature_cols = regime_feature_columns(df)
-
-    work = df[["date", target_col] + feature_cols].copy()
-    work = work.replace([np.inf, -np.inf], np.nan)
-
-    train = work.dropna(subset=[target_col] + feature_cols).copy()
-    train["target"] = (train[target_col] == 1).astype(int)
-
-    latest = df.dropna(subset=feature_cols).iloc[-1:].copy()
+    df = load_market_features(feature_path)
+    train, feature_cols, _ = supervised_frame(df)
+    latest, _ = latest_feature_row(df)
 
     model = RandomForestClassifier(
         n_estimators=300,

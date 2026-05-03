@@ -29,8 +29,9 @@ class DailyWorkflow:
         self.runner.run("10. Walk-forward optimize strategies", py("scripts/walk_forward_optimize.py"))
         self.runner.run("11. Select strategy", py("scripts/select_strategy.py"))
         self.runner.run("12. Run model zoo", py("scripts/run_model_zoo.py"))
-        self.runner.run("13. Score selected model latest", py("scripts/score_selected_model_latest.py"))
-        self.runner.run("14. Print decision summary", py("scripts/daily_decision_summary.py"))
+        self.runner.run("13. Build model experiment report", py("scripts/model_experiment_report.py"))
+        self.runner.run("14. Score selected model latest", py("scripts/score_selected_model_latest.py"))
+        self.runner.run("15. Print decision summary", py("scripts/daily_decision_summary.py"))
 
         print()
         print("== Done ==")

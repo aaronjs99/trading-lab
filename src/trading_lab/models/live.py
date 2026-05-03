@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
+from trading_lab.models.dataset import latest_feature_row, load_market_features, supervised_frame
 from trading_lab.models.selection import select_model_zoo_winner
 from trading_lab.models.zoo import ModelFactory
-from trading_lab.signals.latest_regime import regime_feature_columns
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -18,18 +17,10 @@ def score_selected_model_latest(
     feature_path: Path = FEATURE_PATH,
     out_path: Path = OUT_PATH,
 ) -> pd.DataFrame:
-    df = pd.read_csv(feature_path)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
+    df = load_market_features(feature_path)
     selected = select_model_zoo_winner()
-    target_col = "TQQQ_hit_up_before_down_5d"
-    feature_cols = regime_feature_columns(df)
-
-    work = df[["date", target_col] + feature_cols].replace([np.inf, -np.inf], np.nan)
-    train = work.dropna(subset=[target_col] + feature_cols).copy()
-    train["target"] = (train[target_col] == 1).astype(int)
-
-    latest = df.dropna(subset=feature_cols).iloc[-1:].copy()
+    train, feature_cols, _ = supervised_frame(df)
+    latest, _ = latest_feature_row(df)
 
     model = ModelFactory.build(selected.model)
     model.fit(train[feature_cols], train["target"])

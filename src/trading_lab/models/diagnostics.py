@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from trading_lab.signals.latest_regime import regime_feature_columns
+from trading_lab.models.dataset import feature_columns
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -13,8 +13,12 @@ OUT_PATH = Path("data/reports/model_diagnostics.md")
 
 def build_model_diagnostics(feature_path: Path = FEATURE_PATH) -> str:
     df = pd.read_csv(feature_path)
-    feature_cols = regime_feature_columns(df)
-    target_cols = [c for c in df.columns if "hit_up_before_down" in c]
+    feature_cols = feature_columns(df)
+    target_cols = [
+        c
+        for c in df.columns
+        if "hit_up_before_down" in c or "horizon_return" in c
+    ]
 
     lines = [
         "# Model Diagnostics",

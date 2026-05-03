@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from trading_lab.config import TradingColumns, load_trading_config
+
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
 PRED_PATH = Path("data/reports/regime_model_predictions.csv")
@@ -52,26 +54,29 @@ def main() -> None:
 
     features = pd.read_csv(FEATURE_PATH)
     preds = pd.read_csv(PRED_PATH)
+    config = load_trading_config()
+    cols_cfg = TradingColumns(config)
 
     features["date"] = pd.to_datetime(features["date"], errors="coerce")
     preds["date"] = pd.to_datetime(preds["date"], errors="coerce")
 
     cols = [
         "date",
-        "TQQQ",
-        "QQQ",
-        "TQQQ_ret_1d",
-        "QQQ_uptrend_20_50",
-        "QQQ_dist_ma_20",
-        "QQQ_dist_ma_50",
+        cols_cfg.traded_price,
+        cols_cfg.benchmark_price,
+        f"{config.traded_symbol.upper()}_ret_1d",
+        cols_cfg.benchmark_uptrend,
+        cols_cfg.benchmark_dist_ma_20,
+        cols_cfg.benchmark_dist_ma_50,
     ]
     cols = [c for c in cols if c in features.columns]
 
     df = preds.merge(features[cols], on="date", how="left").sort_values("date").reset_index(drop=True)
 
     # Use next-day return to avoid same-day lookahead.
-    df["next_tqqq_ret"] = df["TQQQ"].shift(-1) / df["TQQQ"] - 1.0
-    df = df.dropna(subset=["next_tqqq_ret"]).copy()
+    next_ret_col = f"next_{config.traded_symbol.lower()}_ret"
+    df[next_ret_col] = df[cols_cfg.traded_price].shift(-1) / df[cols_cfg.traded_price] - 1.0
+    df = df.dropna(subset=[next_ret_col]).copy()
 
     prob_col = "random_forest_proba"
     if prob_col not in df.columns:
@@ -80,24 +85,40 @@ def main() -> None:
     strategies = []
 
     # Baselines.
-    df["always_tqqq_exposure"] = 1.0
-    strategies.append(("always_tqqq", df["always_tqqq_exposure"] * df["next_tqqq_ret"], df["always_tqqq_exposure"]))
+    always_col = f"always_{config.traded_symbol.lower()}_exposure"
+    df[always_col] = 1.0
+    strategies.append(
+        (
+            f"always_{config.traded_symbol.lower()}",
+            df[always_col] * df[next_ret_col],
+            df[always_col],
+        )
+    )
 
-    if "QQQ_uptrend_20_50" in df.columns:
-        df["qqq_20_50_exposure"] = df["QQQ_uptrend_20_50"].astype(float)
-        strategies.append(("qqq_20_50_filter", df["qqq_20_50_exposure"] * df["next_tqqq_ret"], df["qqq_20_50_exposure"]))
+    if cols_cfg.benchmark_uptrend in df.columns:
+        trend_exposure = f"{config.benchmark_symbol.lower()}_20_50_exposure"
+        df[trend_exposure] = df[cols_cfg.benchmark_uptrend].astype(float)
+        strategies.append(
+            (
+                f"{config.benchmark_symbol.lower()}_20_50_filter",
+                df[trend_exposure] * df[next_ret_col],
+                df[trend_exposure],
+            )
+        )
 
     # Model thresholds.
     for threshold in [0.50, 0.55, 0.60, 0.65, 0.70]:
         exposure = (df[prob_col] >= threshold).astype(float)
-        strategies.append((f"rf_prob_ge_{threshold:.2f}", exposure * df["next_tqqq_ret"], exposure))
+        strategies.append((f"rf_prob_ge_{threshold:.2f}", exposure * df[next_ret_col], exposure))
 
     # Model plus trend filter.
-    if "QQQ_uptrend_20_50" in df.columns:
-        trend = df["QQQ_uptrend_20_50"].astype(bool)
+    if cols_cfg.benchmark_uptrend in df.columns:
+        trend = df[cols_cfg.benchmark_uptrend].astype(bool)
         for threshold in [0.50, 0.55, 0.60, 0.65, 0.70]:
             exposure = ((df[prob_col] >= threshold) & trend).astype(float)
-            strategies.append((f"rf_prob_ge_{threshold:.2f}_and_trend", exposure * df["next_tqqq_ret"], exposure))
+            strategies.append(
+                (f"rf_prob_ge_{threshold:.2f}_and_trend", exposure * df[next_ret_col], exposure)
+            )
 
     rows = []
     curves = pd.DataFrame({"date": df["date"]})
@@ -118,12 +139,12 @@ def main() -> None:
     latest = df.iloc[-1]
     latest_cols = [
         "date",
-        "TQQQ",
-        "QQQ",
+        cols_cfg.traded_price,
+        cols_cfg.benchmark_price,
         prob_col,
-        "QQQ_uptrend_20_50",
-        "QQQ_dist_ma_20",
-        "QQQ_dist_ma_50",
+        cols_cfg.benchmark_uptrend,
+        cols_cfg.benchmark_dist_ma_20,
+        cols_cfg.benchmark_dist_ma_50,
     ]
     latest_cols = [c for c in latest_cols if c in df.columns]
     for c in latest_cols:

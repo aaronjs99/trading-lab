@@ -13,7 +13,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from trading_lab.backtests.walk_forward import _event_returns, _summarize
-from trading_lab.signals.latest_regime import regime_feature_columns
+from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
+from trading_lab.config.targets import PredictionTarget
+from trading_lab.models.dataset import (
+    feature_columns,
+    load_market_features,
+    primary_prediction_target,
+    supervised_frame,
+    target_column,
+)
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -104,36 +112,57 @@ class MarketDataset:
     def __init__(
         self,
         feature_path: Path = FEATURE_PATH,
-        target_col: str = "TQQQ_hit_up_before_down_5d",
+        target_col: str | None = None,
+        target: PredictionTarget | None = None,
+        config: TradingConfig | None = None,
     ) -> None:
         self.feature_path = feature_path
-        self.target_col = target_col
+        self.config = config or load_trading_config()
+        self.target = target or primary_prediction_target(self.config)
+        self.target_col = target_col or target_column(self.target)
 
     def load(self) -> tuple[pd.DataFrame, list[str]]:
-        df = pd.read_csv(self.feature_path)
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-        feature_cols = regime_feature_columns(df)
+        df = load_market_features(self.feature_path)
+        if self.target_col != target_column(self.target):
+            target_col = self.target_col
+            _, feature_cols, _ = self._supervised_by_column(df, target_col)
+        else:
+            _, feature_cols, target_col = supervised_frame(
+                df,
+                target=self.target,
+                config=self.config,
+            )
+        cols = TradingColumns(self.config)
         needed = list(
             dict.fromkeys(
                 [
                     "date",
-                    "TQQQ",
-                    "QQQ_uptrend_20_50",
-                    "QQQ_dist_ma_20",
-                    self.target_col,
+                    cols.traded_price,
+                    cols.benchmark_uptrend,
+                    cols.benchmark_dist_ma_20,
+                    target_col,
                 ]
                 + feature_cols
             )
         )
-
         work = df[needed].replace([np.inf, -np.inf], np.nan).dropna().copy()
-        work["target"] = (work[self.target_col] == 1).astype(int)
+        work["target"] = (work[target_col] == 1).astype(int)
         return work, feature_cols
+
+    def _supervised_by_column(
+        self,
+        df: pd.DataFrame,
+        target_col: str,
+    ) -> tuple[pd.DataFrame, list[str], str]:
+        feature_cols = feature_columns(df, self.config)
+        work = df[["date", target_col] + feature_cols].replace([np.inf, -np.inf], np.nan)
+        work = work.dropna(subset=[target_col] + feature_cols).copy()
+        work["target"] = (work[target_col] == 1).astype(int)
+        return work, feature_cols, target_col
 
 
 class WalkForwardModelZoo:
-    """Walk-forward model comparison for TQQQ event-style trading."""
+    """Walk-forward model comparison for configured event-style trading."""
 
     def __init__(
         self,
@@ -193,6 +222,7 @@ class WalkForwardModelZoo:
                     max_hold=config.max_hold,
                     require_trend=config.require_trend,
                     max_ext20=config.max_ext20,
+                    config=self.dataset.config,
                 )
                 trade_stats = _summarize(trades)
 

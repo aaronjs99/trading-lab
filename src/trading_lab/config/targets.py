@@ -13,13 +13,25 @@ class PredictionTarget:
     horizon_days: int
     up_threshold: float
     down_threshold: float
+    mode: str = "barrier_first_hit"
 
     @property
     def label_col(self) -> str:
+        if self.mode == "horizon_return":
+            return f"{self.symbol.upper()}_{self.horizon_days}d_positive_return"
+        if self.mode == "threshold_horizon_return":
+            return f"{self.symbol.upper()}_{self.horizon_days}d_return_ge_{self.up_threshold:.0%}"
         return f"{self.symbol.upper()}_{self.horizon_days}d_up{self.up_threshold:.0%}_before_down{abs(self.down_threshold):.0%}"
 
     @property
     def description(self) -> str:
+        if self.mode == "horizon_return":
+            return f"{self.symbol.upper()} has a positive {self.horizon_days} trading-day forward return"
+        if self.mode == "threshold_horizon_return":
+            return (
+                f"{self.symbol.upper()} forward return is at least "
+                f"+{self.up_threshold:.0%} within {self.horizon_days} trading days"
+            )
         return (
             f"{self.symbol.upper()} hits +{self.up_threshold:.0%} before "
             f"-{abs(self.down_threshold):.0%} within {self.horizon_days} trading days"
