@@ -5,6 +5,14 @@ from pathlib import Path
 
 import yaml
 
+from trading_lab.config.profiles import (
+    DEFAULT_PROFILE,
+    active_profile,
+    bool_env_override,
+    profile_from_env,
+    profile_uses_experiment_target,
+)
+
 
 DEFAULT_CONFIG_PATH = Path("config/trading.yaml")
 
@@ -21,6 +29,7 @@ class TradingConfig:
     use_experiment_selected_target: bool = False
     selected_target_mode: str | None = None
     selected_target_name: str | None = None
+    active_profile: str = "default"
 
     @property
     def traded_upper(self) -> str:
@@ -32,14 +41,37 @@ class TradingConfig:
 
 
 def load_trading_config(path: Path = DEFAULT_CONFIG_PATH) -> TradingConfig:
+    profile = active_profile()
+    selected_profile = profile_from_env()
+    override = bool_env_override()
     if not path.exists():
-        return TradingConfig()
+        return TradingConfig(
+            use_experiment_selected_target=(
+                override
+                if override is not None
+                else profile_uses_experiment_target(selected_profile or DEFAULT_PROFILE)
+            ),
+            active_profile=profile,
+        )
 
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     symbols = data.get("symbols", {})
     account = data.get("account", {})
     allocation = data.get("allocation", {})
     modeling = data.get("modeling", {})
+    file_use_experiment = bool(
+        modeling.get(
+            "use_experiment_selected_target",
+            TradingConfig.use_experiment_selected_target,
+        )
+    )
+    use_experiment = (
+        override
+        if override is not None
+        else profile_uses_experiment_target(selected_profile)
+        if selected_profile is not None
+        else file_use_experiment
+    )
 
     return TradingConfig(
         traded_symbol=str(symbols.get("traded", TradingConfig.traded_symbol)),
@@ -53,12 +85,8 @@ def load_trading_config(path: Path = DEFAULT_CONFIG_PATH) -> TradingConfig:
         max_core_allocation_wait=float(
             allocation.get("max_core_allocation_wait", TradingConfig.max_core_allocation_wait)
         ),
-        use_experiment_selected_target=bool(
-            modeling.get(
-                "use_experiment_selected_target",
-                TradingConfig.use_experiment_selected_target,
-            )
-        ),
+        use_experiment_selected_target=use_experiment,
         selected_target_mode=modeling.get("selected_target_mode"),
         selected_target_name=modeling.get("selected_target_name"),
+        active_profile=profile,
     )
