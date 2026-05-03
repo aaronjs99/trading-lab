@@ -16,12 +16,13 @@ from trading_lab.backtests.walk_forward import _event_returns, _summarize
 from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
 from trading_lab.config.targets import PredictionTarget
 from trading_lab.models.dataset import (
+    ensure_target_column,
     feature_columns,
     load_market_features,
-    primary_prediction_target,
     supervised_frame,
     target_column,
 )
+from trading_lab.models.target_selection import selected_prediction_target
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -118,11 +119,12 @@ class MarketDataset:
     ) -> None:
         self.feature_path = feature_path
         self.config = config or load_trading_config()
-        self.target = target or primary_prediction_target(self.config)
+        self.target = target or selected_prediction_target(self.config).target
         self.target_col = target_col or target_column(self.target)
 
     def load(self) -> tuple[pd.DataFrame, list[str]]:
         df = load_market_features(self.feature_path)
+        df = ensure_target_column(df, self.target)
         if self.target_col != target_column(self.target):
             target_col = self.target_col
             _, feature_cols, _ = self._supervised_by_column(df, target_col)
@@ -321,8 +323,9 @@ def default_configs() -> list[ModelConfig]:
 
 
 def run_model_zoo() -> pd.DataFrame:
+    config = load_trading_config()
     zoo = WalkForwardModelZoo(
-        dataset=MarketDataset(),
+        dataset=MarketDataset(config=config),
         configs=default_configs(),
     )
     _, _, ranking = zoo.write_reports()

@@ -70,6 +70,10 @@ def build_daily_decision_summary() -> str:
     baseline_prob = float(baseline_pred["random_forest_proba"])
     selected_model_prob = float(selected_pred["probability"])
     selected_model_name = str(selected_pred["model"])
+    configured_target_mode = str(selected_pred.get("configured_target_mode", "barrier_first_hit"))
+    active_target_mode = str(selected_pred.get("active_target_mode", configured_target_mode))
+    active_target_col = str(selected_pred.get("active_target_col", cols.traded_target(5)))
+    target_source = str(selected_pred.get("target_source", "default_config"))
 
     allocation = recommend_allocation(
         rf_probability=selected_model_prob,
@@ -91,6 +95,10 @@ def build_daily_decision_summary() -> str:
         f"{cfg.traded_symbol}: {traded_price:.2f}",
         f"RF probability: {baseline_prob:.3f}",
         f"Selected model probability ({selected_model_name}): {selected_model_prob:.3f}",
+        f"Configured target mode: {configured_target_mode}",
+        f"Active target mode: {active_target_mode}",
+        f"Active target column: {active_target_col}",
+        f"Target source: {target_source}",
         f"{cfg.benchmark_symbol} uptrend 20/50: {trend}",
         f"{cfg.benchmark_symbol} distance from 20DMA: {_fmt_pct(benchmark_ext20)}",
         f"{cfg.benchmark_symbol} distance from 50DMA: {_fmt_pct(benchmark_ext50)}",
