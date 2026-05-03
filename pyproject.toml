@@ -32,3 +32,8 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+
+[project.scripts]
+tl = "trading_lab.cli.main:main"
+trading-lab = "trading_lab.cli.main:main"

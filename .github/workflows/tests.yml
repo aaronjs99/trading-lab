@@ -25,3 +25,7 @@ jobs:
         run: |
           chmod +x ./scripts/tl_test.sh
           ./scripts/tl_test.sh
+
+      - name: Run repo audit
+        run: |
+          python -B scripts/audit_repo.py
