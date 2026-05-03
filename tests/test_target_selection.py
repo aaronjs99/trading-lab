@@ -1,7 +1,11 @@
 import pandas as pd
 
 from trading_lab.config import TradingConfig
-from trading_lab.models.target_selection import select_best_target, selected_prediction_target
+from trading_lab.models.target_selection import (
+    format_selected_target,
+    select_best_target,
+    selected_prediction_target,
+)
 
 
 def _report():
@@ -85,3 +89,15 @@ def test_select_best_target_prefers_finite_profit_factor_before_inf():
 
     assert row is not None
     assert row["model"] == "logistic_regression"
+
+
+def test_select_target_output_reports_profile_and_source():
+    config = TradingConfig(traded_symbol="SOXL", benchmark_symbol="XLK", active_profile="research")
+    selection = selected_prediction_target(config, report_df=pd.DataFrame())
+
+    text = format_selected_target(selection, config)
+
+    assert "active_profile: research" in text
+    assert "experiment_selected_target_enabled: False" in text
+    assert "source: default_config" in text
+    assert "fallback_reason: experiment target selection disabled" in text

@@ -95,6 +95,7 @@ def build_daily_decision_summary() -> str:
         f"{cfg.traded_symbol}: {traded_price:.2f}",
         f"RF probability: {baseline_prob:.3f}",
         f"Selected model probability ({selected_model_name}): {selected_model_prob:.3f}",
+        f"Profile: {cfg.active_profile}",
         f"Configured target mode: {configured_target_mode}",
         f"Active target mode: {active_target_mode}",
         f"Active target column: {active_target_col}",

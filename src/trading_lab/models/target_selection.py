@@ -147,9 +147,12 @@ def _optional_float(row: pd.Series, column: str) -> float | None:
     return float(row[column])
 
 
-def format_selected_target(selection: SelectedTarget) -> str:
+def format_selected_target(selection: SelectedTarget, config: TradingConfig | None = None) -> str:
+    cfg = config or load_trading_config()
     lines = [
         "== Selected model target ==",
+        f"active_profile: {cfg.active_profile}",
+        f"experiment_selected_target_enabled: {cfg.use_experiment_selected_target}",
         f"target_name: {selection.target_name}",
         f"target_mode: {selection.target_mode}",
         f"target_col: {selection.target_col}",
@@ -170,7 +173,8 @@ def _fmt(value: float | None) -> str:
 
 
 def main() -> None:
-    print(format_selected_target(selected_prediction_target()))
+    cfg = load_trading_config()
+    print(format_selected_target(selected_prediction_target(cfg), cfg))
 
 
 if __name__ == "__main__":
