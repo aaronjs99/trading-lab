@@ -78,11 +78,11 @@ def _write_features(path: Path, include_only_barrier: bool = False) -> None:
     df.to_csv(path, index=False)
 
 
-def test_model_experiment_report_includes_all_target_modes(tmp_path: Path):
+def test_model_experiment_report_includes_target_modes_and_generates_missing_targets(tmp_path: Path):
     zoo_path = tmp_path / "model_zoo_ranking.csv"
     feature_path = tmp_path / "market_features.csv"
     _write_model_zoo(zoo_path)
-    _write_features(feature_path)
+    _write_features(feature_path, include_only_barrier=True)
 
     report = build_model_experiment_report(
         model_zoo_path=zoo_path,
@@ -96,20 +96,6 @@ def test_model_experiment_report_includes_all_target_modes(tmp_path: Path):
         "threshold_horizon_return",
     }
     assert set(report["model"]) == {"logistic_regression"}
-
-
-def test_model_experiment_report_generates_missing_target_columns(tmp_path: Path):
-    zoo_path = tmp_path / "model_zoo_ranking.csv"
-    feature_path = tmp_path / "market_features.csv"
-    _write_model_zoo(zoo_path)
-    _write_features(feature_path, include_only_barrier=True)
-
-    report = build_model_experiment_report(
-        model_zoo_path=zoo_path,
-        feature_path=feature_path,
-        config=TradingConfig(traded_symbol="SOXL", benchmark_symbol="XLK"),
-    )
-
     assert "SOXL_horizon_return_5d" in set(report["target_col"])
     assert "SOXL_threshold_horizon_return_up5pct_5d" in set(report["target_col"])
     assert report["train_rows"].notna().all()

@@ -83,7 +83,8 @@ def main() -> None:
     scripts = sorted(p for p in Path("scripts").glob("*") if p.is_file())
     print(f"scripts: {len(scripts)}")
     for script in scripts:
-        line_count = sum(1 for _ in script.open("r", encoding="utf-8", errors="ignore"))
+        with script.open("r", encoding="utf-8", errors="ignore") as handle:
+            line_count = sum(1 for _ in handle)
         kind = "thin" if line_count <= 6 else "logic"
         print(f"{kind.upper()} {script} lines={line_count}")
 

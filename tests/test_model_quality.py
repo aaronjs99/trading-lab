@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from trading_lab.models.quality import evaluate_model_quality
+from trading_lab.models.quality import evaluate_model_quality, write_model_quality_gate
 
 
 def test_model_quality_gate_flags_weak_model(tmp_path: Path):
@@ -46,5 +46,10 @@ def test_model_quality_gate_accepts_good_model(tmp_path: Path):
     pd.DataFrame([{"model": "rf", "probability": 0.62}]).to_csv(signal, index=False)
 
     gate = evaluate_model_quality(zoo, signal)
+    out = tmp_path / "gate.txt"
+    write_model_quality_gate(gate, out)
+    text = out.read_text(encoding="utf-8")
 
     assert gate.status == "MODEL_OK"
+    assert "\\nstatus:" not in text
+    assert "status: MODEL_OK" in text
