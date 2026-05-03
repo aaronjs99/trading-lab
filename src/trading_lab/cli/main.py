@@ -17,6 +17,7 @@ def main() -> None:
     sub.add_parser("card")
     sub.add_parser("plots")
     sub.add_parser("orders")
+    sub.add_parser("demo")
     sub.add_parser("test")
     sub.add_parser("audit")
     decide = sub.add_parser("decide")
@@ -58,6 +59,12 @@ def main() -> None:
 
     if command == "orders":
         raise SystemExit(_run([sys.executable, "scripts/parse_open_orders.py"]) or _run([sys.executable, "scripts/reconcile_orders.py"]))
+
+    if command == "demo":
+        from trading_lab.workflows.demo import run_demo
+
+        run_demo()
+        return
 
     if command == "test":
         raise SystemExit(_run(["./scripts/tl_test.sh", *rest]))

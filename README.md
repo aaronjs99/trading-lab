@@ -1,8 +1,8 @@
 # trading-lab
 
-`trading-lab` is a local research and decision-support toolkit for studying short-term leveraged ETF trading workflows, especially TQQQ/QQQ-style setups. It combines market-data ingestion, feature generation, regime modeling, walk-forward strategy evaluation, personal trade-history analysis, dashboard reports, plots, and order-reconciliation helpers.
+`trading-lab` is a local research and decision-support toolkit for studying short-term leveraged ETF trading workflows. The default configuration remains the original TQQQ/QQQ-style setup, but the modeling, dashboard, and backtest paths are intended to follow configured symbols. It combines market-data ingestion, feature generation, regime modeling, walk-forward strategy evaluation, personal trade-history analysis, dashboard reports, plots, and order-reconciliation helpers.
 
-The project is designed as a research lab, not an automated trading bot. It produces probabilities, diagnostics, action cards, allocation suggestions, and risk checks, while deliberately keeping final trading decisions manual.
+The project is designed as a research lab, not an automated trading bot. It produces probabilities, diagnostics, action cards, allocation suggestions, and risk checks, while deliberately keeping final trading decisions manual. It does not require broker credentials, does not include Robinhood login/API integration, and does not place trades.
 
 ## Current status
 
@@ -107,7 +107,7 @@ The daily workflow generates:
 - Model quality gate.
 - Model comparison/degradation report.
 - Personal trading edge summary.
-- Suggested TQQQ ladder.
+- Suggested configured traded-symbol ladder.
 - Order reconciliation checks.
 - Dashboard plots.
 
@@ -117,9 +117,9 @@ The concise action card is intended for quick daily use.
 
 The dashboard generates plots under `data/reports/plots/`, including:
 
-- TQQQ price context.
-- QQQ regime context.
-- TQQQ drawdown context.
+- Configured traded-symbol price context.
+- Configured benchmark-symbol regime context.
+- Configured traded-symbol drawdown context.
 - Model probability history.
 - Strategy equity curves.
 - Walk-forward top strategies.
@@ -179,31 +179,43 @@ If your environment does not install test/model dependencies automatically, inst
 python -m pip install pandas numpy scikit-learn matplotlib yfinance pytest pyyaml
 ```
 
-### 3. Run tests
+### 3. Run the synthetic demo
+
+Fresh public clones can run a no-network demo from committed fake fixtures:
+
+```bash
+python -m trading_lab.cli.main demo
+# or
+./scripts/tl_demo.sh
+```
+
+The demo uses tiny synthetic SOXL/XLK/SPY price CSVs from `examples/demo_data/`, writes all generated outputs to a temporary directory, and prints a small action card plus decision readout. It does not touch real `data/`, require Robinhood, or use private files.
+
+### 4. Run tests
 
 ```bash
 ./scripts/tl_test.sh
 ```
 
-### 4. Run the full daily workflow
+### 5. Run the full daily workflow
 
 ```bash
 ./scripts/tl_full_daily.sh
 ```
 
-### 5. Show compact status/action card
+### 6. Show compact status/action card
 
 ```bash
 ./scripts/tl_command.sh card
 ```
 
-### 6. Show full status
+### 7. Show full status
 
 ```bash
 ./scripts/tl_status.sh
 ```
 
-### 7. Regenerate plots
+### 8. Regenerate plots
 
 ```bash
 python scripts/plot_dashboard.py
@@ -213,6 +225,9 @@ python scripts/plot_model_dashboard.py
 ## Common commands
 
 ```bash
+# No-network synthetic demo
+python -m trading_lab.cli.main demo
+
 # Full daily workflow
 ./scripts/tl_full_daily.sh
 
@@ -256,6 +271,18 @@ python scripts/audit_repo.py
 python scripts/clean_cruft.py
 ```
 
+## Daily Use
+
+The normal daily flow is manual-first:
+
+```bash
+./scripts/tl_full_daily.sh
+./scripts/tl_command.sh card
+./scripts/tl_command.sh decide --account-value 5000 --cash 1000 --position TQQQ:2
+```
+
+Use the output as decision support only. Review the model quality gate, selected strategy eligibility, current exposure, and open-order checks before making any manual trade.
+
 ## Configuration
 
 Main configuration files live in `config/`.
@@ -269,7 +296,7 @@ Defines the core trading setup, including:
 - traded symbol
 - inverse symbol
 
-The default setup is centered on SPY/QQQ/TQQQ/SQQQ.
+The default profile is centered on SPY/QQQ/TQQQ/SQQQ and uses the configured default prediction targets. The research profile can be enabled with `TRADING_LAB_PROFILE=research`; it opts into experiment-selected targets when available so research changes can be evaluated without changing the conservative default daily behavior.
 
 ### `config/market_symbols.txt`
 

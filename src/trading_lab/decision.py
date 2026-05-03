@@ -281,7 +281,11 @@ def _daily_action(
         return "TRIM"
     if raw_action == "DEFENSIVE_OR_CASH":
         return "SELL" if holding else "NO_TRADE"
-    if raw_action in {"TACTICAL_TQQQ_BUY_ALLOWED", "SMALL_TQQQ_ALLOWED"} and eligible:
+    if (
+        raw_action in {"TACTICAL_TQQQ_BUY_ALLOWED", "SMALL_TQQQ_ALLOWED"}
+        or raw_action.startswith("TACTICAL_") and raw_action.endswith("_BUY_ALLOWED")
+        or raw_action.startswith("SMALL_") and raw_action.endswith("_ALLOWED")
+    ) and eligible:
         return "HOLD" if holding else "BUY_SMALL"
     if holding:
         return "HOLD"
