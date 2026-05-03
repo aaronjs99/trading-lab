@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
+
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
 PRED_PATH = Path("data/reports/regime_model_predictions.csv")
@@ -22,9 +24,12 @@ def run_event_backtest(
     stop_loss: float,
     max_hold_days: int,
     cooldown_days: int,
+    config: TradingConfig | None = None,
 ) -> dict:
     trades = []
     i = 0
+    cfg = config or load_trading_config()
+    cols = TradingColumns(cfg)
 
     while i < len(df) - max_hold_days - 1:
         row = df.iloc[i]
@@ -33,29 +38,29 @@ def run_event_backtest(
             i += 1
             continue
 
-        if require_trend and not bool(row.get("QQQ_uptrend_20_50", False)):
+        if require_trend and not bool(row.get(cols.benchmark_uptrend, False)):
             i += 1
             continue
 
         if max_extension_ma20 is not None:
-            if row.get("QQQ_dist_ma_20", np.nan) > max_extension_ma20:
+            if row.get(cols.benchmark_dist_ma_20, np.nan) > max_extension_ma20:
                 i += 1
                 continue
 
         if min_drawdown_20d is not None:
-            if row.get("TQQQ_drawdown_from_20d_high", np.nan) > min_drawdown_20d:
+            if row.get(cols.traded_drawdown_20d, np.nan) > min_drawdown_20d:
                 i += 1
                 continue
 
-        entry_price = float(row["TQQQ"])
+        entry_price = float(row[cols.traded_price])
         entry_date = row["date"]
 
         exit_reason = "timeout"
         exit_idx = min(i + max_hold_days, len(df) - 1)
-        exit_price = float(df.iloc[exit_idx]["TQQQ"])
+        exit_price = float(df.iloc[exit_idx][cols.traded_price])
 
         for j in range(i + 1, min(i + max_hold_days + 1, len(df))):
-            px = float(df.iloc[j]["TQQQ"])
+            px = float(df.iloc[j][cols.traded_price])
             ret = px / entry_price - 1.0
 
             if ret >= take_profit:
@@ -82,9 +87,15 @@ def run_event_backtest(
                 "return": ret,
                 "exit_reason": exit_reason,
                 "prob": row["random_forest_proba"],
-                "qqq_trend": row.get("QQQ_uptrend_20_50", np.nan),
-                "qqq_dist_ma20": row.get("QQQ_dist_ma_20", np.nan),
-                "tqqq_drawdown_20d": row.get("TQQQ_drawdown_from_20d_high", np.nan),
+                f"{cfg.benchmark_symbol.lower()}_trend": row.get(cols.benchmark_uptrend, np.nan),
+                f"{cfg.benchmark_symbol.lower()}_dist_ma20": row.get(
+                    cols.benchmark_dist_ma_20,
+                    np.nan,
+                ),
+                f"{cfg.traded_symbol.lower()}_drawdown_20d": row.get(
+                    cols.traded_drawdown_20d,
+                    np.nan,
+                ),
                 "hold_days": exit_idx - i,
             }
         )
@@ -133,25 +144,27 @@ def main() -> None:
 
     features = pd.read_csv(FEATURE_PATH)
     preds = pd.read_csv(PRED_PATH)
+    config = load_trading_config()
+    cols_cfg = TradingColumns(config)
 
     features["date"] = pd.to_datetime(features["date"], errors="coerce")
     preds["date"] = pd.to_datetime(preds["date"], errors="coerce")
 
     keep = [
         "date",
-        "TQQQ",
-        "QQQ",
-        "QQQ_uptrend_20_50",
-        "QQQ_dist_ma_20",
-        "QQQ_dist_ma_50",
-        "TQQQ_drawdown_from_20d_high",
-        "TQQQ_drawdown_from_60d_high",
-        "TQQQ_vol_20d",
+        cols_cfg.traded_price,
+        cols_cfg.benchmark_price,
+        cols_cfg.benchmark_uptrend,
+        cols_cfg.benchmark_dist_ma_20,
+        cols_cfg.benchmark_dist_ma_50,
+        cols_cfg.traded_drawdown_20d,
+        f"{config.traded_symbol.upper()}_drawdown_from_60d_high",
+        f"{config.traded_symbol.upper()}_vol_20d",
     ]
     keep = [c for c in keep if c in features.columns]
 
     df = preds.merge(features[keep], on="date", how="left").sort_values("date").reset_index(drop=True)
-    df = df.dropna(subset=["TQQQ", "random_forest_proba"]).copy()
+    df = df.dropna(subset=[cols_cfg.traded_price, "random_forest_proba"]).copy()
 
     configs = []
 
@@ -215,6 +228,7 @@ def main() -> None:
             stop_loss=cfg["stop_loss"],
             max_hold_days=cfg["max_hold_days"],
             cooldown_days=cfg["cooldown_days"],
+            config=config,
         )
 
         if isinstance(result, tuple):

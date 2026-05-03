@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from trading_lab.config import TradingConfig, load_trading_config
 from trading_lab.signals.ladder import LadderOrder
 
 
@@ -37,11 +38,13 @@ def reconcile_tqqq_orders(
     ladder: list[LadderOrder],
     account_value: float,
     current_price: float,
+    config: TradingConfig | None = None,
 ) -> list[OrderCheck]:
     checks: list[OrderCheck] = []
+    traded = (config or load_trading_config()).traded_symbol.upper()
 
     buys = open_orders[
-        (open_orders["symbol"] == "TQQQ") & (open_orders["side"] == "buy")
+        (open_orders["symbol"] == traded) & (open_orders["side"] == "buy")
     ].copy()
 
     pending_buy_value = float((buys["quantity"] * buys["limit_price"]).sum())
@@ -53,7 +56,7 @@ def reconcile_tqqq_orders(
             OrderCheck(
                 status="TOO_AGGRESSIVE",
                 message=(
-                    f"Pending TQQQ buys are {pending_buy_allocation:.1%} of account, "
+                    f"Pending {traded} buys are {pending_buy_allocation:.1%} of account, "
                     f"but recommendation is {recommended_allocation:.1%}. Reduce/cancel orders."
                 ),
             )
@@ -63,7 +66,7 @@ def reconcile_tqqq_orders(
             OrderCheck(
                 status="OK_SIZE",
                 message=(
-                    f"Pending TQQQ buys are {pending_buy_allocation:.1%}; "
+                    f"Pending {traded} buys are {pending_buy_allocation:.1%}; "
                     f"recommended max ladder is {recommended_allocation:.1%}."
                 ),
             )
@@ -103,6 +106,7 @@ def suggest_tqqq_order_adjustments(
     open_orders: pd.DataFrame,
     ladder: list[LadderOrder],
     account_value: float,
+    config: TradingConfig | None = None,
 ) -> pd.DataFrame:
     """Suggest simple order adjustments against the recommended ladder.
 
@@ -116,12 +120,13 @@ def suggest_tqqq_order_adjustments(
         raise ValueError("account_value must be positive")
 
     rows: list[dict] = []
+    traded = (config or load_trading_config()).traded_symbol.upper()
     recommended_budget = sum(o.allocation_fraction for o in ladder) * account_value
 
     orders = open_orders.copy()
     orders["notional"] = orders["quantity"] * orders["limit_price"]
 
-    sells = orders[(orders["symbol"] == "TQQQ") & (orders["side"] == "sell")]
+    sells = orders[(orders["symbol"] == traded) & (orders["side"] == "sell")]
     for _, order in sells.iterrows():
         rows.append(
             {
@@ -137,7 +142,7 @@ def suggest_tqqq_order_adjustments(
             }
         )
 
-    buys = orders[(orders["symbol"] == "TQQQ") & (orders["side"] == "buy")].copy()
+    buys = orders[(orders["symbol"] == traded) & (orders["side"] == "buy")].copy()
     buys = buys.sort_values("limit_price", ascending=False)
 
     remaining_budget = recommended_budget
@@ -150,7 +155,7 @@ def suggest_tqqq_order_adjustments(
         if remaining_budget <= 0:
             suggested_qty = 0.0
             recommendation = "CANCEL_BUY"
-            reason = "Recommended TQQQ buy budget is already used."
+            reason = f"Recommended {traded} buy budget is already used."
         else:
             max_qty = int(remaining_budget // price)
             suggested_qty = float(min(current_qty, max_qty))
@@ -159,13 +164,13 @@ def suggest_tqqq_order_adjustments(
 
             if suggested_qty == current_qty:
                 recommendation = "KEEP_BUY"
-                reason = "Order fits within recommended TQQQ buy budget."
+                reason = f"Order fits within recommended {traded} buy budget."
             elif suggested_qty > 0:
                 recommendation = "REDUCE_BUY"
-                reason = "Reduce quantity to fit recommended TQQQ buy budget."
+                reason = f"Reduce quantity to fit recommended {traded} buy budget."
             else:
                 recommendation = "CANCEL_BUY"
-                reason = "Order exceeds recommended TQQQ buy budget."
+                reason = f"Order exceeds recommended {traded} buy budget."
 
         rows.append(
             {
@@ -264,6 +269,7 @@ def main() -> None:
         ladder=ladder,
         account_value=account_value,
         current_price=current_price,
+        config=trading_cfg,
     )
 
     print("== Order reconciliation ==")

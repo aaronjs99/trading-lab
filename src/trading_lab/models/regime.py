@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+
+from trading_lab.models.dataset import load_market_features, supervised_frame, train_test_split_time
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -21,43 +22,16 @@ def main() -> None:
     if not FEATURE_PATH.exists():
         raise SystemExit(f"{FEATURE_PATH} not found. Run ./scripts/run_market_feature_pipeline.sh first.")
 
-    df = pd.read_csv(FEATURE_PATH)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    target_col = "TQQQ_hit_up_before_down_5d"
-    if target_col not in df.columns:
-        raise SystemExit(f"Missing target column: {target_col}")
-
-    feature_cols = [
-        c for c in df.columns
-        if (
-            c.startswith("SPY_ret_")
-            or c.startswith("QQQ_ret_")
-            or c.startswith("TQQQ_ret_")
-            or c.startswith("SPY_dist_ma_")
-            or c.startswith("QQQ_dist_ma_")
-            or c.startswith("TQQQ_dist_ma_")
-            or c.startswith("SPY_vol_")
-            or c.startswith("QQQ_vol_")
-            or c.startswith("TQQQ_vol_")
-            or c.startswith("SPY_drawdown_")
-            or c.startswith("QQQ_drawdown_")
-            or c.startswith("TQQQ_drawdown_")
-            or c == "QQQ_uptrend_20_50"
-        )
-    ]
-
-    work = df[["date", target_col] + feature_cols].copy()
-    work = work.replace([np.inf, -np.inf], np.nan).dropna()
-
-    work["target"] = (work[target_col] == 1).astype(int)
+    df = load_market_features(FEATURE_PATH)
+    try:
+        work, feature_cols, target_col = supervised_frame(df)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if len(work) < 500:
         raise SystemExit(f"Not enough rows after cleaning: {len(work)}")
 
-    split_idx = int(len(work) * 0.7)
-    train = work.iloc[:split_idx].copy()
-    test = work.iloc[split_idx:].copy()
+    train, test = train_test_split_time(work, test_fraction=0.30)
 
     X_train = train[feature_cols]
     y_train = train["target"]

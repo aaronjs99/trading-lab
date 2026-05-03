@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 
-from trading_lab.signals.latest_regime import regime_feature_columns
+from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
+from trading_lab.models.dataset import load_market_features, supervised_frame
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -31,9 +32,11 @@ def _event_returns(
     require_trend: bool,
     max_ext20: float | None,
     cooldown: int = 2,
+    config: TradingConfig | None = None,
 ) -> pd.DataFrame:
     trades = []
     i = 0
+    cols = TradingColumns(config or load_trading_config())
 
     while i < len(df) - max_hold - 1:
         row = df.iloc[i]
@@ -42,21 +45,21 @@ def _event_returns(
             i += 1
             continue
 
-        if require_trend and not bool(row["QQQ_uptrend_20_50"]):
+        if require_trend and not bool(row[cols.benchmark_uptrend]):
             i += 1
             continue
 
-        if max_ext20 is not None and float(row["QQQ_dist_ma_20"]) > max_ext20:
+        if max_ext20 is not None and float(row[cols.benchmark_dist_ma_20]) > max_ext20:
             i += 1
             continue
 
-        entry = float(row["TQQQ"])
+        entry = float(row[cols.traded_price])
         exit_idx = min(i + max_hold, len(df) - 1)
-        exit_px = float(df.iloc[exit_idx]["TQQQ"])
+        exit_px = float(df.iloc[exit_idx][cols.traded_price])
         reason = "timeout"
 
         for j in range(i + 1, min(i + max_hold + 1, len(df))):
-            px = float(df.iloc[j]["TQQQ"])
+            px = float(df.iloc[j][cols.traded_price])
             ret = px / entry - 1.0
             if ret >= take_profit:
                 exit_idx = j
@@ -138,17 +141,25 @@ def walk_forward_optimize(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_csv(feature_path)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    config = load_trading_config()
+    cols = TradingColumns(config)
+    df = load_market_features(feature_path)
+    base, feature_cols, target_col = supervised_frame(df, config=config)
 
-    target_col = "TQQQ_hit_up_before_down_5d"
-    feature_cols = regime_feature_columns(df)
-
-    needed = list(dict.fromkeys(
-        ["date", "TQQQ", "QQQ_uptrend_20_50", "QQQ_dist_ma_20", target_col] + feature_cols
-    ))
+    needed = list(
+        dict.fromkeys(
+            [
+                "date",
+                cols.traded_price,
+                cols.benchmark_uptrend,
+                cols.benchmark_dist_ma_20,
+                target_col,
+            ]
+            + feature_cols
+        )
+    )
     work = df[needed].replace([np.inf, -np.inf], np.nan).dropna().copy()
-    work["target"] = (work[target_col] == 1).astype(int)
+    work["target"] = base["target"]
 
     folds = [
         ("2021_2022", "2012-01-01", "2020-12-31", "2021-01-01", "2022-12-31"),
@@ -190,6 +201,7 @@ def walk_forward_optimize(
                 max_hold=params["max_hold"],
                 require_trend=params["require_trend"],
                 max_ext20=params["max_ext20"],
+                config=config,
             )
             stats = _summarize(trades)
 

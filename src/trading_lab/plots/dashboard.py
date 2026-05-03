@@ -9,6 +9,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from trading_lab.config import TradingColumns, TradingConfig, load_trading_config
+
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
 PRED_PATH = Path("data/reports/latest_regime_signal.csv")
@@ -19,8 +21,13 @@ def plot_tqqq_dashboard(
     feature_path: Path = FEATURE_PATH,
     pred_path: Path = PRED_PATH,
     out_dir: Path = OUT_DIR,
+    config: TradingConfig | None = None,
 ) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    cfg = config or load_trading_config()
+    cols = TradingColumns(cfg)
+    traded = cfg.traded_symbol.upper()
+    benchmark = cfg.benchmark_symbol.upper()
 
     df = pd.read_csv(feature_path)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -30,12 +37,14 @@ def plot_tqqq_dashboard(
 
     price_path = out_dir / "tqqq_price_context.png"
     fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(df["date"], df["TQQQ"], label="TQQQ")
-    if "TQQQ_ma_20" in df.columns:
-        ax.plot(df["date"], df["TQQQ_ma_20"], label="20DMA")
-    if "TQQQ_ma_50" in df.columns:
-        ax.plot(df["date"], df["TQQQ_ma_50"], label="50DMA")
-    ax.set_title("TQQQ price context")
+    ax.plot(df["date"], df[cols.traded_price], label=traded)
+    traded_ma20 = f"{traded}_ma_20"
+    traded_ma50 = f"{traded}_ma_50"
+    if traded_ma20 in df.columns:
+        ax.plot(df["date"], df[traded_ma20], label="20DMA")
+    if traded_ma50 in df.columns:
+        ax.plot(df["date"], df[traded_ma50], label="50DMA")
+    ax.set_title(f"{traded} price context")
     ax.set_xlabel("Date")
     ax.set_ylabel("Price")
     ax.legend()
@@ -47,11 +56,11 @@ def plot_tqqq_dashboard(
 
     regime_path = out_dir / "qqq_regime_context.png"
     fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(df["date"], df["QQQ_dist_ma_20"] * 100, label="QQQ % from 20DMA")
-    ax.plot(df["date"], df["QQQ_dist_ma_50"] * 100, label="QQQ % from 50DMA")
+    ax.plot(df["date"], df[cols.benchmark_dist_ma_20] * 100, label=f"{benchmark} % from 20DMA")
+    ax.plot(df["date"], df[cols.benchmark_dist_ma_50] * 100, label=f"{benchmark} % from 50DMA")
     ax.axhline(6.0, linestyle="--", label="6% extension cap")
     ax.axhline(0.0, linestyle=":")
-    ax.set_title("QQQ regime and extension")
+    ax.set_title(f"{benchmark} regime and extension")
     ax.set_xlabel("Date")
     ax.set_ylabel("Percent")
     ax.legend()
@@ -63,11 +72,12 @@ def plot_tqqq_dashboard(
 
     drawdown_path = out_dir / "tqqq_drawdown_context.png"
     fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(df["date"], df["TQQQ_drawdown_from_20d_high"] * 100, label="20d high drawdown")
-    ax.plot(df["date"], df["TQQQ_drawdown_from_60d_high"] * 100, label="60d high drawdown")
+    traded_dd60 = f"{traded}_drawdown_from_60d_high"
+    ax.plot(df["date"], df[cols.traded_drawdown_20d] * 100, label="20d high drawdown")
+    ax.plot(df["date"], df[traded_dd60] * 100, label="60d high drawdown")
     ax.axhline(-3.0, linestyle="--", label="-3% pullback")
     ax.axhline(0.0, linestyle=":")
-    ax.set_title("TQQQ pullback context")
+    ax.set_title(f"{traded} pullback context")
     ax.set_xlabel("Date")
     ax.set_ylabel("Percent")
     ax.legend()

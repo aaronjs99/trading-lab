@@ -8,7 +8,13 @@ from sklearn.ensemble import RandomForestClassifier
 
 from trading_lab.config import load_trading_config
 from trading_lab.config.targets import PredictionTarget, default_prediction_targets
-from trading_lab.signals.latest_regime import regime_feature_columns
+from trading_lab.models.dataset import (
+    feature_columns,
+    latest_feature_row,
+    load_market_features,
+    supervised_frame,
+    target_column,
+)
 
 
 FEATURE_PATH = Path("data/processed/market/market_features.csv")
@@ -16,7 +22,7 @@ OUT_PATH = Path("data/reports/multi_horizon_signal.csv")
 
 
 def _target_column(target: PredictionTarget) -> str:
-    return f"{target.symbol.upper()}_hit_up_before_down_{target.horizon_days}d"
+    return target_column(target)
 
 
 def _fit_probability(
@@ -25,13 +31,12 @@ def _fit_probability(
     feature_cols: list[str],
 ) -> tuple[float, int, float]:
     work = df[["date", target_col] + feature_cols].replace([np.inf, -np.inf], np.nan)
-
     train = work.dropna(subset=[target_col] + feature_cols).copy()
     if train.empty:
         raise ValueError(f"No training rows for target {target_col}")
 
     train["target"] = (train[target_col] == 1).astype(int)
-    latest = df.dropna(subset=feature_cols).iloc[-1:].copy()
+    latest, _ = latest_feature_row(df)
 
     model = RandomForestClassifier(
         n_estimators=300,
@@ -54,15 +59,14 @@ def score_multi_horizon(
     config = load_trading_config()
     targets = targets or default_prediction_targets(config)
 
-    df = pd.read_csv(feature_path)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    feature_cols = regime_feature_columns(df)
+    df = load_market_features(feature_path)
+    feature_cols = feature_columns(df, config)
     latest_date = df.dropna(subset=feature_cols).iloc[-1]["date"]
 
     rows = []
     for target in targets:
         target_col = _target_column(target)
+        supervised_frame(df, target=target, config=config)
         proba, train_rows, positive_rate = _fit_probability(
             df=df,
             target_col=target_col,
