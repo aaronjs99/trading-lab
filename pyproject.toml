@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-lab"
+version = "0.1.0"
+description = "Research tools for Robinhood history reconstruction, realized P&L analysis, and TQQQ/SPY ladder backtests."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scikit-learn>=1.3",
+    "yfinance>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
