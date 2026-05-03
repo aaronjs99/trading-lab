@@ -2,47 +2,8 @@ import pandas as pd
 
 from trading_lab.config import TradingConfig
 from trading_lab.config.targets import PredictionTarget
-from trading_lab.models.live import OUT_PATH
 from trading_lab.models.live import score_selected_model_latest
 from trading_lab.models.target_selection import SelectedTarget
-
-
-def test_selected_model_signal_output_path_name():
-    assert OUT_PATH.name == "selected_model_latest_signal.csv"
-
-
-def test_selected_model_signal_schema_example():
-    df = pd.DataFrame(
-        [
-            {
-                "date": "2026-05-01",
-                "model": "random_forest_deeper",
-                "probability": 0.42,
-                "train_rows": 100,
-                "target_positive_rate": 0.36,
-                "selected_model_profit_factor": 2.5,
-                "selected_model_worst_drawdown": -0.34,
-                "configured_target_mode": "barrier_first_hit",
-                "active_target_mode": "threshold_horizon_return",
-                "active_target_col": "TQQQ_threshold_horizon_return_up5pct_5d",
-                "target_source": "experiment_report",
-            }
-        ]
-    )
-
-    assert set(df.columns) == {
-        "date",
-        "model",
-        "probability",
-        "train_rows",
-        "target_positive_rate",
-        "selected_model_profit_factor",
-        "selected_model_worst_drawdown",
-        "configured_target_mode",
-        "active_target_mode",
-        "active_target_col",
-        "target_source",
-    }
 
 
 def test_selected_model_latest_accepts_selected_target_without_tqqq_assumptions(tmp_path, monkeypatch):
@@ -102,4 +63,17 @@ def test_selected_model_latest_accepts_selected_target_without_tqqq_assumptions(
 
     assert out.loc[0, "active_target_mode"] == "threshold_horizon_return"
     assert out.loc[0, "active_target_col"] == "SOXL_threshold_horizon_return_up5pct_1d"
+    assert {
+        "date",
+        "model",
+        "probability",
+        "train_rows",
+        "target_positive_rate",
+        "selected_model_profit_factor",
+        "selected_model_worst_drawdown",
+        "configured_target_mode",
+        "active_target_mode",
+        "active_target_col",
+        "target_source",
+    }.issubset(out.columns)
     assert out_path.exists()
