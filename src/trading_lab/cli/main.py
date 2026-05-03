@@ -4,8 +4,6 @@ import argparse
 import subprocess
 import sys
 
-from trading_lab.cli.status import print_status
-
 
 def _run(command: list[str]) -> int:
     return subprocess.run(command, check=False).returncode
@@ -21,16 +19,38 @@ def main() -> None:
     sub.add_parser("orders")
     sub.add_parser("test")
     sub.add_parser("audit")
+    decide = sub.add_parser("decide")
+    decide.add_argument("--profile")
+    decide.add_argument("--account-value", type=float)
+    decide.add_argument("--position", action="append", default=[])
+    decide.add_argument("--cash", type=float)
 
     args, rest = parser.parse_known_args()
     command = args.command or "status"
 
     if command == "status":
+        from trading_lab.cli.status import print_status
+
         print_status(refresh=False, compact=False)
         return
 
     if command == "card":
+        from trading_lab.cli.status import print_status
+
         print_status(refresh=False, compact=True)
+        return
+
+    if command == "decide":
+        from trading_lab.decision import render_daily_decision
+
+        print(
+            render_daily_decision(
+                profile=args.profile,
+                account_value=args.account_value,
+                positions=args.position,
+                cash=args.cash,
+            )
+        )
         return
 
     if command == "plots":
