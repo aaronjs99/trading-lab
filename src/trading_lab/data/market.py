@@ -6,6 +6,8 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
+from trading_lab.portfolio.state import collect_portfolio_symbols
+
 
 DEFAULT_SYMBOLS_PATH = Path("config/market_symbols.txt")
 DEFAULT_OUT_DIR = Path("data/raw/market")
@@ -43,6 +45,17 @@ def load_market_symbols(path: Path = DEFAULT_SYMBOLS_PATH) -> list[str]:
         symbols.append(symbol)
 
     return symbols
+
+
+def market_symbol_universe(config_symbols: list[str] | None = None) -> list[str]:
+    """Return configured market symbols plus symbols found in local portfolio CSVs."""
+    symbols = load_market_symbols() if config_symbols is None else config_symbols
+    combined: dict[str, None] = {}
+    for symbol in [*symbols, *collect_portfolio_symbols()]:
+        clean = symbol.strip().upper()
+        if clean:
+            combined[clean] = None
+    return list(combined)
 
 
 def csv_has_today_data(path: Path, today: date | None = None) -> bool:
@@ -115,7 +128,7 @@ def update_market_data(
     start: str = DEFAULT_START,
     force: bool = False,
 ) -> dict[str, int]:
-    symbols = symbols or load_market_symbols()
+    symbols = symbols or market_symbol_universe()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Updating {len(symbols)} market CSVs under {out_dir}")

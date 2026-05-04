@@ -62,6 +62,7 @@ def render_daily_decision(
     positions: list[str] | tuple[str, ...] | None = None,
     positions_path: Path = POSITIONS_PATH,
     open_orders_path: Path = OPEN_ORDERS_PATH,
+    account_path: Path | None = None,
     market_dir: Path = DEFAULT_MARKET_DIR,
 ) -> str:
     """Render a fast read-only daily decision from existing report files."""
@@ -75,6 +76,7 @@ def render_daily_decision(
         positions=positions,
         positions_path=positions_path,
         open_orders_path=open_orders_path,
+        account_path=account_path,
         market_dir=market_dir,
     )
     if inputs is None:
@@ -92,6 +94,7 @@ def load_decision_inputs(
     positions: list[str] | tuple[str, ...] | None = None,
     positions_path: Path = POSITIONS_PATH,
     open_orders_path: Path = OPEN_ORDERS_PATH,
+    account_path: Path | None = None,
     market_dir: Path = DEFAULT_MARKET_DIR,
 ) -> DecisionInputs | None:
     _ = manual_dir
@@ -125,10 +128,13 @@ def load_decision_inputs(
         local_portfolio = build_portfolio_state(
             positions_path=positions_path,
             open_orders_path=open_orders_path,
+            **({"account_path": account_path} if account_path is not None else {}),
             market_dir=market_dir,
-            account_value=resolved_account_value,
+            account_value=account_value,
             cash=cash,
         )
+        if local_portfolio.account_value is not None:
+            resolved_account_value = float(local_portfolio.account_value)
 
     if local_portfolio is not None:
         parsed_positions = tuple(

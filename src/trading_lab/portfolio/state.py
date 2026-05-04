@@ -8,9 +8,11 @@ from pathlib import Path
 
 POSITIONS_PATH = Path("data/raw/portfolio/positions.csv")
 OPEN_ORDERS_PATH = Path("data/raw/portfolio/open_orders.csv")
+ACCOUNT_PATH = Path("data/raw/portfolio/account.csv")
 MARKET_DIR = Path("data/raw/market")
 
 POSITION_COLUMNS = ("symbol", "quantity", "notes", "updated_at")
+ACCOUNT_COLUMNS = ("key", "value", "updated_at")
 OPEN_ORDER_COLUMNS = (
     "symbol",
     "side",
@@ -83,6 +85,12 @@ class PortfolioState:
         return sum(symbol.market_value or 0.0 for symbol in self.symbols.values())
 
 
+@dataclass(frozen=True)
+class AccountState:
+    cash: float | None = None
+    account_value: float | None = None
+
+
 def read_positions(path: Path = POSITIONS_PATH) -> tuple[Position, ...]:
     if not path.exists():
         return ()
@@ -130,6 +138,21 @@ def read_open_orders(path: Path = OPEN_ORDERS_PATH) -> tuple[OpenOrder, ...]:
     return tuple(orders)
 
 
+def read_account(path: Path = ACCOUNT_PATH) -> AccountState:
+    if not path.exists():
+        return AccountState()
+    rows = _read_csv_rows(path, {"key", "value"})
+    values: dict[str, float] = {}
+    for row in rows:
+        key = row["key"].strip().lower()
+        if key in {"cash", "account_value"}:
+            values[key] = _parse_float(row["value"], f"{path}: value for {key}")
+    return AccountState(
+        cash=values.get("cash"),
+        account_value=values.get("account_value"),
+    )
+
+
 def latest_market_prices(market_dir: Path = MARKET_DIR) -> dict[str, float]:
     if not market_dir.exists():
         return {}
@@ -145,12 +168,16 @@ def build_portfolio_state(
     *,
     positions_path: Path = POSITIONS_PATH,
     open_orders_path: Path = OPEN_ORDERS_PATH,
+    account_path: Path = ACCOUNT_PATH,
     market_dir: Path = MARKET_DIR,
     account_value: float | None = None,
     cash: float | None = None,
 ) -> PortfolioState:
     positions = read_positions(positions_path)
     open_orders = read_open_orders(open_orders_path)
+    account = read_account(account_path)
+    resolved_account_value = account_value if account_value is not None else account.account_value
+    resolved_cash = cash if cash is not None else account.cash
     prices = latest_market_prices(market_dir)
     warnings: list[str] = []
 
@@ -181,8 +208,10 @@ def build_portfolio_state(
         post_fill_quantity = quantity + pending_buy_quantity - pending_sell_quantity
         post_fill_value = post_fill_quantity * price if price is not None else None
         allocation_pct = (
-            market_value / account_value
-            if market_value is not None and account_value is not None and account_value > 0
+            market_value / resolved_account_value
+            if market_value is not None
+            and resolved_account_value is not None
+            and resolved_account_value > 0
             else None
         )
 
@@ -205,8 +234,8 @@ def build_portfolio_state(
         open_orders=open_orders,
         symbols=symbol_states,
         prices=prices,
-        account_value=account_value,
-        cash=cash,
+        account_value=resolved_account_value,
+        cash=resolved_cash,
         warnings=tuple(warnings),
     )
 
@@ -251,8 +280,18 @@ def summarize_portfolio_state(state: PortfolioState) -> str:
 def portfolio_files_exist(
     positions_path: Path = POSITIONS_PATH,
     open_orders_path: Path = OPEN_ORDERS_PATH,
+    account_path: Path = ACCOUNT_PATH,
 ) -> bool:
-    return positions_path.exists() or open_orders_path.exists()
+    return positions_path.exists() or open_orders_path.exists() or account_path.exists()
+
+
+def collect_portfolio_symbols(
+    positions_path: Path = POSITIONS_PATH,
+    open_orders_path: Path = OPEN_ORDERS_PATH,
+) -> list[str]:
+    symbols = {position.symbol for position in read_positions(positions_path)}
+    symbols.update(order.symbol for order in read_open_orders(open_orders_path))
+    return sorted(symbols)
 
 
 def write_position(path: Path, symbol: str, quantity: float) -> None:
@@ -283,6 +322,40 @@ def write_position(path: Path, symbol: str, quantity: float) -> None:
     _write_csv(path, POSITION_COLUMNS, rows)
 
 
+def update_position_quantity(
+    path: Path,
+    symbol: str,
+    delta: float,
+    *,
+    allow_negative: bool = False,
+) -> tuple[float, float]:
+    before = _position_quantity(path, symbol)
+    after = before + delta
+    if after < 0 and not allow_negative:
+        raise ValueError(
+            f"Local-only sell would make {symbol.strip().upper()} negative "
+            f"({after:g}); pass --allow-negative to permit it."
+        )
+    write_position(path, symbol, after)
+    return before, after
+
+
+def write_account_value(path: Path, key: str, value: float) -> None:
+    normalized = key.strip().lower().replace("-", "_")
+    if normalized not in {"cash", "account_value"}:
+        raise ValueError("account key must be cash or account_value")
+    rows = [dict(row) for row in _read_csv_rows(path, set(), allow_missing=True)]
+    today = date.today().isoformat()
+    found = False
+    for row in rows:
+        if row.get("key", "").strip().lower() == normalized:
+            row.update({"key": normalized, "value": str(value), "updated_at": today})
+            found = True
+    if not found:
+        rows.append({"key": normalized, "value": str(value), "updated_at": today})
+    _write_csv(path, ACCOUNT_COLUMNS, rows)
+
+
 def append_open_order(
     path: Path,
     *,
@@ -309,6 +382,33 @@ def append_open_order(
         }
     )
     _write_csv(path, OPEN_ORDER_COLUMNS, rows)
+
+
+def clear_open_orders(path: Path, symbol: str | None = None) -> int:
+    rows = [dict(row) for row in _read_csv_rows(path, set(), allow_missing=True)]
+    if not rows:
+        _write_csv(path, OPEN_ORDER_COLUMNS, rows)
+        return 0
+    today = date.today().isoformat()
+    cleared = 0
+    target = symbol.strip().upper() if symbol is not None else None
+    for row in rows:
+        row_symbol = row.get("symbol", "").strip().upper()
+        status = row.get("status", "").strip().lower()
+        if status == "canceled":
+            continue
+        if target is None or row_symbol == target:
+            row["status"] = "canceled"
+            row["notes"] = row.get("notes", "") or "locally_canceled"
+            row["submitted_at"] = row.get("submitted_at", "") or today
+            cleared += 1
+    _write_csv(path, OPEN_ORDER_COLUMNS, rows)
+    return cleared
+
+
+def _position_quantity(path: Path, symbol: str) -> float:
+    target = symbol.strip().upper()
+    return sum(position.quantity for position in read_positions(path) if position.symbol == target)
 
 
 def _read_csv_rows(

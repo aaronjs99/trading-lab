@@ -5,7 +5,7 @@ import time
 
 import pandas as pd
 
-from trading_lab.data.market import csv_has_today_data, update_market_data
+from trading_lab.data.market import csv_has_today_data, market_symbol_universe, update_market_data
 
 
 def _set_mtime(path: Path, day: date) -> None:
@@ -43,3 +43,33 @@ def test_update_market_data_skips_fresh_files_without_downloading(tmp_path: Path
     result = update_market_data(symbols=["TQQQ"], out_dir=out_dir)
 
     assert result == {"downloaded": 0, "skipped": 1, "failed": 0}
+
+
+def test_market_symbol_universe_includes_local_portfolio_symbols(tmp_path: Path, monkeypatch):
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    portfolio_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\n"
+        "APLD,1,current_position,2026-05-04\n"
+        "APP,1,current_position,2026-05-04\n"
+        "CRWV,1,current_position,2026-05-04\n"
+        "DDOG,1,current_position,2026-05-04\n"
+        "EQIX,1,current_position,2026-05-04\n"
+        "SNDK,1,current_position,2026-05-04\n"
+        "SNOW,1,current_position,2026-05-04\n"
+        "STX,1,current_position,2026-05-04\n"
+        "TSM,1,current_position,2026-05-04\n"
+        "VST,1,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n"
+        "TQQQ,buy,limit,1,58,GTC,placed,2026-05-04,current_open_order\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    symbols = market_symbol_universe(config_symbols=["SPY"])
+
+    for symbol in ["SPY", "APLD", "APP", "CRWV", "DDOG", "EQIX", "SNDK", "SNOW", "STX", "TSM", "VST", "TQQQ"]:
+        assert symbol in symbols

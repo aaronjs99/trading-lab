@@ -7,10 +7,19 @@ import pytest
 
 from trading_lab.portfolio import state
 from trading_lab.portfolio.state import (
+    ACCOUNT_PATH,
+    OPEN_ORDERS_PATH,
+    POSITIONS_PATH,
+    append_open_order,
     build_portfolio_state,
+    clear_open_orders,
     latest_market_prices,
+    read_account,
     read_open_orders,
     read_positions,
+    update_position_quantity,
+    write_account_value,
+    write_position,
 )
 
 
@@ -134,3 +143,105 @@ def test_portfolio_module_has_no_broker_or_order_placement_functions():
     assert "broker" not in source
     assert "place_order" not in source
     assert "submit_order" not in source
+
+
+def test_update_buy_sell_set_modifies_positions(tmp_path: Path):
+    path = tmp_path / "positions.csv"
+
+    write_position(path, "TQQQ", 4)
+    before, after = update_position_quantity(path, "TQQQ", 1)
+    assert (before, after) == (4, 5)
+    before, after = update_position_quantity(path, "TQQQ", -1)
+    assert (before, after) == (5, 4)
+    write_position(path, "TQQQ", 7)
+
+    assert read_positions(path)[0].quantity == 7
+
+
+def test_sell_cannot_make_position_negative_by_default(tmp_path: Path):
+    path = tmp_path / "positions.csv"
+    write_position(path, "TQQQ", 1)
+
+    with pytest.raises(ValueError, match="negative"):
+        update_position_quantity(path, "TQQQ", -2)
+
+    assert read_positions(path)[0].quantity == 1
+    update_position_quantity(path, "TQQQ", -2, allow_negative=True)
+    assert read_positions(path)[0].quantity == -1
+
+
+def test_account_csv_cash_and_account_value_are_read_and_overridden(tmp_path: Path):
+    account_path = tmp_path / "account.csv"
+    positions_path = tmp_path / "positions.csv"
+    market_dir = tmp_path / "market"
+    market_dir.mkdir()
+    write_account_value(account_path, "cash", 1000)
+    write_account_value(account_path, "account_value", 5000)
+    write_position(positions_path, "TQQQ", 4)
+    (market_dir / "TQQQ.csv").write_text("date,close\n2026-05-04,50\n", encoding="utf-8")
+
+    account = read_account(account_path)
+    state_from_csv = build_portfolio_state(
+        positions_path=positions_path,
+        open_orders_path=tmp_path / "orders.csv",
+        account_path=account_path,
+        market_dir=market_dir,
+    )
+    overridden = build_portfolio_state(
+        positions_path=positions_path,
+        open_orders_path=tmp_path / "orders.csv",
+        account_path=account_path,
+        market_dir=market_dir,
+        account_value=10000,
+        cash=250,
+    )
+
+    assert account.cash == 1000
+    assert account.account_value == 5000
+    assert state_from_csv.cash == 1000
+    assert state_from_csv.account_value == 5000
+    assert state_from_csv.symbols["TQQQ"].allocation_pct == pytest.approx(0.04)
+    assert overridden.cash == 250
+    assert overridden.account_value == 10000
+    assert overridden.symbols["TQQQ"].allocation_pct == pytest.approx(0.02)
+
+
+def test_order_clear_and_clear_all_mark_orders_canceled(tmp_path: Path):
+    path = tmp_path / "open_orders.csv"
+    append_open_order(path, side="buy", symbol="TQQQ", quantity=1, limit_price=58)
+    append_open_order(path, side="sell", symbol="TQQQ", quantity=1, limit_price=68)
+    append_open_order(path, side="buy", symbol="APP", quantity=1, limit_price=10)
+
+    assert clear_open_orders(path, "TQQQ") == 2
+    orders = read_open_orders(path)
+    assert [order.status for order in orders if order.symbol == "TQQQ"] == ["canceled", "canceled"]
+    assert [order.status for order in orders if order.symbol == "APP"] == ["placed"]
+
+    assert clear_open_orders(path) == 1
+    assert all(order.status == "canceled" for order in read_open_orders(path))
+
+
+def test_cli_update_commands_modify_local_csvs(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    import trading_lab.cli.main as cli_main
+
+    commands = [
+        ["tl", "update", "set", "TQQQ", "4"],
+        ["tl", "update", "buy", "TQQQ", "1"],
+        ["tl", "update", "sell", "TQQQ", "1"],
+        ["tl", "update", "cash", "1000"],
+        ["tl", "update", "account-value", "5000"],
+        ["tl", "update", "order", "buy", "TQQQ", "10", "58"],
+        ["tl", "update", "order", "sell", "TQQQ", "4", "68.50"],
+        ["tl", "update", "order", "clear", "TQQQ"],
+    ]
+    for argv in commands:
+        monkeypatch.setattr("sys.argv", argv)
+        cli_main.main()
+
+    assert read_positions(POSITIONS_PATH)[0].quantity == 4
+    assert read_account(ACCOUNT_PATH).cash == 1000
+    assert read_account(ACCOUNT_PATH).account_value == 5000
+    assert all(order.status == "canceled" for order in read_open_orders(OPEN_ORDERS_PATH))
+    assert "Local-only update" in capsys.readouterr().out

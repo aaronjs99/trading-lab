@@ -33,6 +33,7 @@ def main() -> None:
     portfolio_status.add_argument("--cash", type=float)
     portfolio_sub.add_parser("positions")
     portfolio_sub.add_parser("orders")
+    portfolio_sub.add_parser("gui")
     portfolio_set = portfolio_sub.add_parser("set")
     portfolio_set.add_argument("symbol")
     portfolio_set.add_argument("quantity", type=float)
@@ -43,6 +44,29 @@ def main() -> None:
     portfolio_order_add.add_argument("symbol")
     portfolio_order_add.add_argument("quantity", type=float)
     portfolio_order_add.add_argument("limit_price", type=float)
+
+    update = sub.add_parser("update")
+    update_sub = update.add_subparsers(dest="update_command")
+    for name in ("buy", "sell", "set"):
+        update_position = update_sub.add_parser(name)
+        update_position.add_argument("symbol")
+        update_position.add_argument("quantity", type=float)
+        if name == "sell":
+            update_position.add_argument("--allow-negative", action="store_true")
+    update_cash = update_sub.add_parser("cash")
+    update_cash.add_argument("amount", type=float)
+    update_account = update_sub.add_parser("account-value")
+    update_account.add_argument("amount", type=float)
+    update_order = update_sub.add_parser("order")
+    update_order_sub = update_order.add_subparsers(dest="update_order_command")
+    for side in ("buy", "sell"):
+        update_order_add = update_order_sub.add_parser(side)
+        update_order_add.add_argument("symbol")
+        update_order_add.add_argument("quantity", type=float)
+        update_order_add.add_argument("limit_price", type=float)
+    update_order_clear = update_order_sub.add_parser("clear")
+    update_order_clear.add_argument("symbol")
+    update_order_sub.add_parser("clear-all")
 
     args, rest = parser.parse_known_args()
     command = args.command or "status"
@@ -74,6 +98,10 @@ def main() -> None:
 
     if command == "portfolio":
         _portfolio_command(args)
+        return
+
+    if command == "update":
+        _update_command(args)
         return
 
     if command == "plots":
@@ -145,6 +173,11 @@ def _portfolio_command(args: argparse.Namespace) -> None:
                 f"{order.submitted_at},{order.notes}"
             )
         return
+    if command == "gui":
+        from trading_lab.portfolio.gui import run_gui
+
+        run_gui()
+        return
     if command == "set":
         write_position(POSITIONS_PATH, args.symbol, args.quantity)
         print(f"Updated local position for {args.symbol.upper()} in {POSITIONS_PATH}.")
@@ -167,6 +200,100 @@ def _portfolio_command(args: argparse.Namespace) -> None:
         )
         return
     raise SystemExit(f"Unknown portfolio command: {command}")
+
+
+def _update_command(args: argparse.Namespace) -> None:
+    from trading_lab.portfolio.state import (
+        ACCOUNT_PATH,
+        OPEN_ORDERS_PATH,
+        POSITIONS_PATH,
+        append_open_order,
+        clear_open_orders,
+        update_position_quantity,
+        write_account_value,
+        write_position,
+    )
+
+    command = args.update_command
+    if command == "buy":
+        before, after = update_position_quantity(POSITIONS_PATH, args.symbol, args.quantity)
+        print(
+            f"Local-only update: {args.symbol.upper()} position {before:g} -> {after:g} "
+            f"in {POSITIONS_PATH}."
+        )
+        return
+    if command == "sell":
+        before, after = update_position_quantity(
+            POSITIONS_PATH,
+            args.symbol,
+            -args.quantity,
+            allow_negative=args.allow_negative,
+        )
+        print(
+            f"Local-only update: {args.symbol.upper()} position {before:g} -> {after:g} "
+            f"in {POSITIONS_PATH}."
+        )
+        return
+    if command == "set":
+        write_position(POSITIONS_PATH, args.symbol, args.quantity)
+        print(
+            f"Local-only update: set {args.symbol.upper()} position to {args.quantity:g} "
+            f"in {POSITIONS_PATH}."
+        )
+        return
+    if command == "cash":
+        write_account_value(ACCOUNT_PATH, "cash", args.amount)
+        print(f"Local-only update: set cash to ${args.amount:,.2f} in {ACCOUNT_PATH}.")
+        return
+    if command == "account-value":
+        write_account_value(ACCOUNT_PATH, "account_value", args.amount)
+        print(
+            f"Local-only update: set account value to ${args.amount:,.2f} "
+            f"in {ACCOUNT_PATH}."
+        )
+        return
+    if command == "order":
+        _update_order_command(args, OPEN_ORDERS_PATH, append_open_order, clear_open_orders)
+        return
+    raise SystemExit("Usage: tl update {buy,sell,set,cash,account-value,order} ...")
+
+
+def _update_order_command(
+    args: argparse.Namespace,
+    open_orders_path,
+    append_open_order,
+    clear_open_orders,
+) -> None:
+    command = args.update_order_command
+    if command in {"buy", "sell"}:
+        append_open_order(
+            open_orders_path,
+            side=command,
+            symbol=args.symbol,
+            quantity=args.quantity,
+            limit_price=args.limit_price,
+        )
+        print(
+            f"Local-only update: added placed {command} limit order for "
+            f"{args.quantity:g} {args.symbol.upper()} at ${args.limit_price:,.2f} "
+            f"in {open_orders_path}."
+        )
+        return
+    if command == "clear":
+        cleared = clear_open_orders(open_orders_path, args.symbol)
+        print(
+            f"Local-only update: marked {cleared} open order(s) for "
+            f"{args.symbol.upper()} canceled in {open_orders_path}."
+        )
+        return
+    if command == "clear-all":
+        cleared = clear_open_orders(open_orders_path)
+        print(
+            f"Local-only update: marked {cleared} open order(s) canceled "
+            f"in {open_orders_path}."
+        )
+        return
+    raise SystemExit("Usage: tl update order {buy,sell,clear,clear-all} ...")
 
 
 if __name__ == "__main__":
