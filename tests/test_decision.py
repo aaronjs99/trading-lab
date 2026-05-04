@@ -97,6 +97,124 @@ def test_decision_accounts_for_existing_position(tmp_path):
     assert "Already holding: yes, 2 shares of TQQQ, about $120.00." in text
 
 
+def test_decision_warns_when_local_portfolio_pending_exceeds_max_allocation(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    market_dir = tmp_path / "data" / "raw" / "market"
+    portfolio_dir.mkdir(parents=True)
+    market_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\nTQQQ,4,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n"
+        "TQQQ,buy,limit,10,58.00,GTC,placed,2026-04-29,current_open_order\n"
+        "TQQQ,sell,limit,4,68.50,GTC,placed,2026-04-29,current_open_order\n",
+        encoding="utf-8",
+    )
+    (market_dir / "TQQQ.csv").write_text("date,close\n2026-05-04,60.00\n", encoding="utf-8")
+
+    text = render_daily_decision(
+        reports_dir=reports,
+        positions_path=portfolio_dir / "positions.csv",
+        open_orders_path=portfolio_dir / "open_orders.csv",
+        market_dir=market_dir,
+        account_value=5000,
+    )
+
+    assert "Current TQQQ position: 4 shares." in text
+    assert "Current TQQQ market value: $240.00 (4.8%)." in text
+    assert "Pending buy orders: 10 shares, $580.00." in text
+    assert "Pending sell orders: 4 shares, $274.00." in text
+    assert "Worst-case if all buys fill: $820.00 (16.4%)." in text
+    assert "Pending orders exceed max recommended allocation: YES." in text
+    assert "Portfolio action: cancel/reduce orders." in text
+    assert "Advice and Interpretation:" in text
+    assert text.index("Advice and Interpretation:") < text.index("Open-order review:")
+    assert "Do not add new TQQQ buys now." in text
+    assert "Suggested order ideas:" in text
+    assert "No new buy orders. Cancel/reduce existing buys first." in text
+    assert "Portfolio holdings review:" in text
+    assert "Open-order review:" in text
+    assert "CANCEL TQQQ buy" in text or "REDUCE TQQQ buy" in text
+    assert "REVIEW TQQQ sell" in text or "KEEP TQQQ sell" in text
+
+
+def test_decision_risk_mode_aggressive_keeps_deep_buy_under_review(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    market_dir = tmp_path / "data" / "raw" / "market"
+    portfolio_dir.mkdir(parents=True)
+    market_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\nTQQQ,4,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n"
+        "TQQQ,buy,limit,1,60.00,GTC,placed,2026-04-29,shallow\n"
+        "TQQQ,buy,limit,1,52.00,GTC,placed,2026-04-29,deep\n",
+        encoding="utf-8",
+    )
+    (market_dir / "TQQQ.csv").write_text("date,close\n2026-05-04,60.00\n", encoding="utf-8")
+
+    text = render_daily_decision(
+        reports_dir=reports,
+        positions_path=portfolio_dir / "positions.csv",
+        open_orders_path=portfolio_dir / "open_orders.csv",
+        market_dir=market_dir,
+        account_value=5000,
+        risk_mode="aggressive",
+    )
+
+    assert "Risk mode: aggressive" in text
+    assert "Aggressive mode accepts higher drawdown risk." in text
+    assert "Exposure warning:" in text
+    assert "REVIEW TQQQ buy 1 @ $52.00" in text
+
+
+def test_decision_missing_portfolio_files_do_not_break_decide(tmp_path):
+    reports = _write_reports(tmp_path)
+
+    text = render_daily_decision(
+        reports_dir=reports,
+        positions_path=tmp_path / "missing_positions.csv",
+        open_orders_path=tmp_path / "missing_orders.csv",
+        market_dir=tmp_path / "missing_market",
+        account_value=5000,
+    )
+
+    assert text.startswith("ACTION: WAIT")
+    assert "Portfolio state:" not in text
+
+
+def test_decide_reads_saved_account_csv_and_flags_override(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    portfolio_dir.mkdir(parents=True)
+    account_path = portfolio_dir / "account.csv"
+    account_path.write_text(
+        "key,value,updated_at\n"
+        "cash,1624.35,2026-05-04\n"
+        "account_value,5000,2026-05-04\n",
+        encoding="utf-8",
+    )
+
+    saved = render_daily_decision(reports_dir=reports)
+    overridden = render_daily_decision(
+        reports_dir=reports,
+        cash=250,
+        account_value=10000,
+    )
+
+    assert "Account value: $5,000.00" in saved
+    assert "Cash: $1,624.35" in saved
+    assert "In cash: yes, $1,624.35 supplied." in saved
+    assert "Account value: $10,000.00" in overridden
+    assert "Cash: $250.00" in overridden
+
+
 def test_cli_decide_does_not_invoke_workflow_commands(tmp_path, monkeypatch, capsys):
     _write_reports(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -110,13 +228,25 @@ def test_cli_decide_does_not_invoke_workflow_commands(tmp_path, monkeypatch, cap
     monkeypatch.setattr(
         sys,
         "argv",
-        ["tl", "decide", "--account-value", "5000", "--position", "TQQQ:2", "--cash", "1200"],
+        [
+            "tl",
+            "decide",
+            "--account-value",
+            "5000",
+            "--position",
+            "TQQQ:2",
+            "--cash",
+            "1200",
+            "--risk-mode",
+            "balanced",
+        ],
     )
 
     cli_main.main()
 
     captured = capsys.readouterr()
     assert captured.out.startswith("ACTION: HOLD")
+    assert "Risk mode: balanced" in captured.out
     assert "daily workflow" not in captured.out.lower()
 
 

@@ -7,6 +7,7 @@ import pandas as pd
 
 from trading_lab.config import TradingConfig, load_trading_config
 from trading_lab.signals.ladder import LadderOrder
+from trading_lab.portfolio.state import OPEN_ORDERS_PATH
 
 
 @dataclass(frozen=True)
@@ -203,7 +204,7 @@ def main() -> None:
     from trading_lab.signals.ladder import build_tqqq_ladder
 
     parser = ArgumentParser()
-    parser.add_argument("--orders", default="data/manual/open_orders.csv")
+    parser.add_argument("--orders")
     parser.add_argument("--account", default="config/account.yaml")
     parser.add_argument("--config", default="config/trading.yaml")
     args = parser.parse_args()
@@ -211,7 +212,13 @@ def main() -> None:
     trading_cfg = load_trading_config(Path(args.config))
     cols = TradingColumns(trading_cfg)
 
-    orders_path = Path(args.orders)
+    portfolio_orders_path = OPEN_ORDERS_PATH
+    if args.orders:
+        orders_path = Path(args.orders)
+    elif portfolio_orders_path.exists():
+        orders_path = portfolio_orders_path
+    else:
+        orders_path = Path("data/manual/open_orders.csv")
     account_path = Path(args.account)
 
     if account_path.exists():
