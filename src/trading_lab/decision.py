@@ -22,6 +22,7 @@ from trading_lab.portfolio.review import (
     review_open_orders,
     suggested_order_ideas,
     summarize_order_reviews,
+    normalize_risk_mode,
 )
 
 
@@ -52,6 +53,7 @@ class DecisionInputs:
     ladder: tuple[str, ...]
     selected_signal: dict[str, str]
     portfolio_state: PortfolioState | None = None
+    risk_mode: str = "conservative"
 
 
 def parse_position(value: str) -> Position:
@@ -73,6 +75,7 @@ def render_daily_decision(
     open_orders_path: Path = OPEN_ORDERS_PATH,
     account_path: Path = ACCOUNT_PATH,
     market_dir: Path = DEFAULT_MARKET_DIR,
+    risk_mode: str = "conservative",
 ) -> str:
     """Render a fast read-only daily decision from existing report files."""
 
@@ -87,6 +90,7 @@ def render_daily_decision(
         open_orders_path=open_orders_path,
         account_path=account_path,
         market_dir=market_dir,
+        risk_mode=risk_mode,
     )
     if inputs is None:
         return MISSING_REPORTS_MESSAGE
@@ -105,8 +109,10 @@ def load_decision_inputs(
     open_orders_path: Path = OPEN_ORDERS_PATH,
     account_path: Path = ACCOUNT_PATH,
     market_dir: Path = DEFAULT_MARKET_DIR,
+    risk_mode: str = "conservative",
 ) -> DecisionInputs | None:
     _ = manual_dir
+    resolved_risk_mode = normalize_risk_mode(risk_mode)
     summary_path = reports_dir / SUMMARY_FILE
     if not summary_path.exists():
         return None
@@ -172,6 +178,7 @@ def load_decision_inputs(
         ladder=tuple(ladder),
         selected_signal=selected_signal,
         portfolio_state=local_portfolio,
+        risk_mode=resolved_risk_mode,
     )
 
 
@@ -236,6 +243,7 @@ def format_decision(inputs: DecisionInputs) -> str:
     lines.append(f"Now: {_now_instruction(action, traded, available_budget, holding)}")
     lines.append(f"Decision: {_decision_sentence(action, traded)}")
     lines.append(f"Profile: {inputs.profile}")
+    lines.append(f"Risk mode: {inputs.risk_mode}")
     lines.append(f"Suggested report action: {raw_action}")
     lines.append(f"Strategy eligible today: {'YES' if eligible else 'NO'}")
 
@@ -398,6 +406,7 @@ def _open_order_review_lines(
         suggested_action=inputs.summary.get("suggested_action", "NO_TRADE"),
         strategy_eligible=inputs.summary.get("strategy_eligible", "").upper() == "YES",
         ladder=inputs.ladder,
+        risk_mode=inputs.risk_mode,
     )
     summary = summarize_order_reviews(reviews)
     lines = ["Open-order review:"]
@@ -443,6 +452,7 @@ def _advice_lines(
         suggested_action=inputs.summary.get("suggested_action", "NO_TRADE"),
         strategy_eligible=inputs.summary.get("strategy_eligible", "").upper() == "YES",
         ladder=inputs.ladder,
+        risk_mode=inputs.risk_mode,
     )
     summary = summarize_order_reviews(reviews)
     context = exposure_context(state, inputs.traded_symbol, inputs.account_value, max_allocation)
@@ -453,7 +463,13 @@ def _advice_lines(
         action=action,
         max_exposure=context.max_exposure,
         order_summary=summary,
+        risk_mode=inputs.risk_mode,
     ))
+    if context.current_exposure is not None and context.max_exposure is not None:
+        lines.append(
+            f"- Exposure warning: current {inputs.traded_symbol.upper()} exposure "
+            f"{_format_money(context.current_exposure)} vs max {_format_money(context.max_exposure)}."
+        )
     lines.extend(["", "Suggested order ideas:"])
     lines.extend(f"- {line}" for line in suggested_order_ideas(
         state,
@@ -461,6 +477,7 @@ def _advice_lines(
         context=context,
         reviews=reviews,
         ladder=inputs.ladder,
+        risk_mode=inputs.risk_mode,
     ))
     return lines
 

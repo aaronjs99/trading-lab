@@ -25,6 +25,11 @@ def main() -> None:
     decide.add_argument("--account-value", type=float)
     decide.add_argument("--position", action="append", default=[])
     decide.add_argument("--cash", type=float)
+    decide.add_argument(
+        "--risk-mode",
+        choices=["conservative", "balanced", "aggressive"],
+        default="conservative",
+    )
 
     portfolio = sub.add_parser("portfolio")
     portfolio_sub = portfolio.add_subparsers(dest="portfolio_command")
@@ -92,6 +97,7 @@ def main() -> None:
                 account_value=args.account_value,
                 positions=args.position,
                 cash=args.cash,
+                risk_mode=args.risk_mode,
             )
         )
         return

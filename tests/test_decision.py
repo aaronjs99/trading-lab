@@ -141,6 +141,39 @@ def test_decision_warns_when_local_portfolio_pending_exceeds_max_allocation(tmp_
     assert "REVIEW TQQQ sell" in text or "KEEP TQQQ sell" in text
 
 
+def test_decision_risk_mode_aggressive_keeps_deep_buy_under_review(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    market_dir = tmp_path / "data" / "raw" / "market"
+    portfolio_dir.mkdir(parents=True)
+    market_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\nTQQQ,4,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n"
+        "TQQQ,buy,limit,1,60.00,GTC,placed,2026-04-29,shallow\n"
+        "TQQQ,buy,limit,1,52.00,GTC,placed,2026-04-29,deep\n",
+        encoding="utf-8",
+    )
+    (market_dir / "TQQQ.csv").write_text("date,close\n2026-05-04,60.00\n", encoding="utf-8")
+
+    text = render_daily_decision(
+        reports_dir=reports,
+        positions_path=portfolio_dir / "positions.csv",
+        open_orders_path=portfolio_dir / "open_orders.csv",
+        market_dir=market_dir,
+        account_value=5000,
+        risk_mode="aggressive",
+    )
+
+    assert "Risk mode: aggressive" in text
+    assert "Aggressive mode accepts higher drawdown risk." in text
+    assert "Exposure warning:" in text
+    assert "REVIEW TQQQ buy 1 @ $52.00" in text
+
+
 def test_decision_missing_portfolio_files_do_not_break_decide(tmp_path):
     reports = _write_reports(tmp_path)
 
@@ -195,13 +228,25 @@ def test_cli_decide_does_not_invoke_workflow_commands(tmp_path, monkeypatch, cap
     monkeypatch.setattr(
         sys,
         "argv",
-        ["tl", "decide", "--account-value", "5000", "--position", "TQQQ:2", "--cash", "1200"],
+        [
+            "tl",
+            "decide",
+            "--account-value",
+            "5000",
+            "--position",
+            "TQQQ:2",
+            "--cash",
+            "1200",
+            "--risk-mode",
+            "balanced",
+        ],
     )
 
     cli_main.main()
 
     captured = capsys.readouterr()
     assert captured.out.startswith("ACTION: HOLD")
+    assert "Risk mode: balanced" in captured.out
     assert "daily workflow" not in captured.out.lower()
 
 

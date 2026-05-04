@@ -32,12 +32,14 @@ from trading_lab.portfolio.review import (
     review_open_orders,
     suggested_order_ideas,
     summarize_order_reviews,
+    normalize_risk_mode,
 )
 
 
-def render_status_page() -> str:
+def render_status_page(risk_mode: str = "conservative") -> str:
+    risk_mode = normalize_risk_mode(risk_mode)
     state = build_portfolio_state()
-    decision_inputs = load_decision_inputs()
+    decision_inputs = load_decision_inputs(risk_mode=risk_mode)
     decision_text = format_decision(decision_inputs) if decision_inputs is not None else ""
     decision = _decision_view_model(decision_text, decision_inputs)
     traded_item = state.symbols.get(decision["traded_symbol"])
@@ -55,6 +57,7 @@ def render_status_page() -> str:
             suggested_action=decision_inputs.summary.get("suggested_action", "NO_TRADE"),
             strategy_eligible=decision_inputs.summary.get("strategy_eligible", "").upper() == "YES",
             ladder=decision_inputs.ladder,
+            risk_mode=risk_mode,
         )
         if decision_inputs is not None
         else ()
@@ -77,6 +80,7 @@ def render_status_page() -> str:
             action=decision["action"],
             max_exposure=context.max_exposure if context is not None else None,
             order_summary=order_summary,
+            risk_mode=risk_mode,
         )
         if decision_inputs is not None
         else ()
@@ -88,6 +92,7 @@ def render_status_page() -> str:
             context=context,
             reviews=order_reviews,
             ladder=decision_inputs.ladder,
+            risk_mode=risk_mode,
         )
         if decision_inputs is not None and context is not None
         else ()
@@ -198,6 +203,13 @@ def render_status_page() -> str:
       padding-top: 12px;
       margin-top: 12px;
     }}
+    .risk-mode-form {{
+      display: block;
+      max-width: 260px;
+      border-top: 0;
+      padding-top: 0;
+      margin: 0 0 10px;
+    }}
     label {{ color: var(--muted); font-size: 12px; }}
     input, select, button {{
       width: 100%;
@@ -237,6 +249,15 @@ def render_status_page() -> str:
       {_header_metric("Account value", _money(state.account_value))}
       {_header_metric("Cash", _money(state.cash))}
     </header>
+    <form class="risk-mode-form" method="get" action="/">
+      <label>Risk mode
+        <select name="risk_mode" onchange="this.form.submit()">
+          {_risk_option("conservative", risk_mode)}
+          {_risk_option("balanced", risk_mode)}
+          {_risk_option("aggressive", risk_mode)}
+        </select>
+      </label>
+    </form>
     <p class="muted">Local dashboard refreshes hourly from existing files. Run tlfull to update market/model reports.</p>
 
     <section class="card tight">
@@ -253,6 +274,7 @@ def render_status_page() -> str:
         {_metric("Max exposure", decision["max_exposure"])}
         {_metric("Buy capacity", decision["buy_capacity"])}
         {_metric("Portfolio action", decision["portfolio_action"])}
+        {_metric("Risk mode", risk_mode)}
         {_metric("Total buy orders", _money(order_summary.total_pending_buy_notional))}
         {_metric("Total sell orders", _money(order_summary.total_pending_sell_notional))}
         {_metric("Flagged orders", str(order_summary.cancel_reduce_review_count))}
@@ -396,7 +418,9 @@ def apply_form_action(path: str, fields: dict[str, str]) -> str:
 def run_gui(host: str = "127.0.0.1", port: int = 8765) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            body = render_status_page().encode("utf-8")
+            query = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            risk_mode = query.get("risk_mode", ["conservative"])[-1]
+            body = render_status_page(risk_mode=risk_mode).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -518,6 +542,11 @@ def _forms() -> str:
       <button type="submit" name="all" value="1">Clear all orders</button>
     </form>
     """
+
+
+def _risk_option(value: str, selected: str) -> str:
+    attr = " selected" if value == selected else ""
+    return f'<option value="{escape(value)}"{attr}>{escape(value)}</option>'
 
 
 def _position_rows(state) -> str:

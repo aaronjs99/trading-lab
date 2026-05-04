@@ -68,3 +68,69 @@ def test_order_review_marks_over_capacity_buys_cancel_or_reduce_and_sell_not_agg
     assert "projected exposure would be $820.00" in buy.reason
     assert sell.recommended_action in {"KEEP", "REVIEW"}
     assert sell.recommended_action not in {"CANCEL", "REDUCE", "MOVE_LOWER"}
+
+
+def test_balanced_mode_cancels_shallow_buys_but_reviews_deeper_buys():
+    state = PortfolioState(
+        account_value=5000,
+        symbols={
+            "TQQQ": SymbolPortfolioState(
+                symbol="TQQQ",
+                quantity=4,
+                latest_price=60,
+                market_value=260,
+            )
+        },
+        open_orders=(
+            OpenOrder("TQQQ", "buy", "limit", 1, 60, "GTC", "placed", "2026-05-04"),
+            OpenOrder("TQQQ", "buy", "limit", 1, 52, "GTC", "placed", "2026-05-04"),
+        ),
+    )
+
+    reviews = review_open_orders(
+        state,
+        "TQQQ",
+        account_value=5000,
+        max_allocation=0.05,
+        suggested_action="WAIT_FOR_PULLBACK",
+        strategy_eligible=False,
+        ladder=("shallow_pullback: limit $58.20, allocation 1.2%, synthetic.",),
+        risk_mode="balanced",
+    )
+
+    assert reviews[0].recommended_action in {"CANCEL", "REDUCE"}
+    assert reviews[1].recommended_action == "REVIEW"
+
+
+def test_aggressive_mode_reviews_deep_buys_while_warning_about_exposure():
+    state = PortfolioState(
+        account_value=5000,
+        symbols={
+            "TQQQ": SymbolPortfolioState(
+                symbol="TQQQ",
+                quantity=4,
+                latest_price=60,
+                market_value=260,
+            )
+        },
+        open_orders=(
+            OpenOrder("TQQQ", "buy", "limit", 1, 60, "GTC", "placed", "2026-05-04"),
+            OpenOrder("TQQQ", "buy", "limit", 1, 52, "GTC", "placed", "2026-05-04"),
+        ),
+    )
+
+    reviews = review_open_orders(
+        state,
+        "TQQQ",
+        account_value=5000,
+        max_allocation=0.05,
+        suggested_action="WAIT_FOR_PULLBACK",
+        strategy_eligible=False,
+        ladder=("shallow_pullback: limit $58.20, allocation 1.2%, synthetic.",),
+        risk_mode="aggressive",
+    )
+
+    assert reviews[0].recommended_action in {"REDUCE", "MOVE_LOWER"}
+    assert reviews[1].recommended_action == "REVIEW"
+    assert "Aggressive mode accepts higher drawdown risk" in reviews[1].reason
+    assert "Exposure warning" in reviews[1].reason

@@ -73,6 +73,10 @@ def test_gui_render_includes_local_status_and_forms(tmp_path: Path, monkeypatch)
     assert ">Positions</button>" in html
     assert ">Open orders</button>" in html
     assert ">Edit local CSVs</button>" in html
+    assert 'name="risk_mode"' in html
+    assert 'value="conservative" selected' in html
+    assert 'value="balanced"' in html
+    assert 'value="aggressive"' in html
 
 
 def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, monkeypatch):
@@ -184,6 +188,18 @@ def test_gui_advice_before_model_probability_and_spacing_css(tmp_path, monkeypat
     assert "current TQQQ exposure ($240.00)" in html or "Pending buy orders" in html
     assert "order-actions-card" in html
     assert "margin-top: 14px" in html
+
+
+def test_gui_risk_mode_changes_recommendation_wording(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page(risk_mode="aggressive")
+
+    assert "Aggressive mode accepts higher drawdown risk" in html
+    assert "Trend-first advice" in html
+    assert 'value="aggressive" selected' in html
+    assert "Risk mode" in html
 
 
 def test_gui_edit_tab_contains_local_csv_warning_and_forms(tmp_path, monkeypatch):

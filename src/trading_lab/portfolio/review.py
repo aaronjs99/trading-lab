@@ -98,7 +98,9 @@ def review_open_orders(
     suggested_action: str,
     strategy_eligible: bool,
     ladder: tuple[str, ...] = (),
+    risk_mode: str = "conservative",
 ) -> tuple[OrderReview, ...]:
+    mode = normalize_risk_mode(risk_mode)
     traded = traded_symbol.upper()
     first_ladder = _first_ladder_price(ladder)
     current = state.symbols.get(traded)
@@ -128,7 +130,30 @@ def review_open_orders(
             and not strategy_eligible
         )
         ladder_relation = _ladder_relation(order, first_ladder)
-        if remaining_buy_capacity is not None and remaining_buy_capacity <= 0:
+        if mode == "aggressive":
+            action, reason = _aggressive_buy_action(
+                order,
+                traded,
+                current_value,
+                max_exposure,
+                first_ladder,
+                aggressive,
+            )
+        elif mode == "balanced":
+            action, reason = _balanced_buy_action(
+                order,
+                traded,
+                current_value,
+                max_exposure,
+                remaining_buy_capacity,
+                first_ladder,
+                aggressive,
+            )
+            if remaining_buy_capacity is not None and action in {"KEEP", "REVIEW"}:
+                remaining_buy_capacity -= order.exposure
+            elif remaining_buy_capacity is not None and action == "REDUCE":
+                remaining_buy_capacity = 0.0
+        elif remaining_buy_capacity is not None and remaining_buy_capacity <= 0:
             action = "CANCEL"
             reason = _zero_capacity_buy_reason(order, traded, current_value, max_exposure)
         elif remaining_buy_capacity is not None and order.exposure > remaining_buy_capacity:
@@ -197,12 +222,25 @@ def advice_lines(
     action: str,
     max_exposure: float | None,
     order_summary: OrderReviewSummary,
+    risk_mode: str = "conservative",
 ) -> tuple[str, ...]:
+    mode = normalize_risk_mode(risk_mode)
     traded = traded_symbol.upper()
     item = state.symbols.get(traded)
     current = item.market_value if item is not None else None
-    lines = [f"Hold current {traded}." if action == "HOLD" else f"Current action is {action}."]
-    lines.append(f"Do not add new {traded} buys now.")
+    lines = [f"Risk mode: {mode}."]
+    if mode == "aggressive":
+        lines.append("Aggressive mode accepts higher drawdown risk.")
+        lines.append("Trend-first advice: prefer deeper, ladder-aligned buys over exposure-only rules.")
+    elif mode == "balanced":
+        lines.append("Balanced mode blends exposure limits with trend and ladder quality.")
+    else:
+        lines.append("Conservative mode is exposure-first.")
+    lines.append(f"Hold current {traded}." if action == "HOLD" else f"Current action is {action}.")
+    if mode == "aggressive":
+        lines.append(f"Do not add shallow {traded} buys now; only deep ladder-aligned orders merit review.")
+    else:
+        lines.append(f"Do not add new {traded} buys now.")
     if current is not None and max_exposure is not None and current > max_exposure:
         lines.append(
             f"Current {traded} exposure ({_money(current)}) is already slightly above "
@@ -236,11 +274,15 @@ def suggested_order_ideas(
     context: ExposureContext,
     reviews: tuple[OrderReview, ...],
     ladder: tuple[str, ...] = (),
+    risk_mode: str = "conservative",
 ) -> tuple[str, ...]:
+    mode = normalize_risk_mode(risk_mode)
     traded = traded_symbol.upper()
     ideas: list[str] = []
-    if context.buy_capacity is not None and context.buy_capacity <= 0:
+    if context.buy_capacity is not None and context.buy_capacity <= 0 and mode != "aggressive":
         ideas.append("No new buy orders. Cancel/reduce existing buys first.")
+    elif context.buy_capacity is not None and context.buy_capacity <= 0:
+        ideas.append("No new shallow buy orders; aggressive mode may review only deep ladder-aligned buys.")
     elif context.buy_capacity is not None:
         first_ladder = _first_ladder_price(ladder)
         if first_ladder is not None and first_ladder > 0:
@@ -276,6 +318,13 @@ def suggested_order_ideas(
             "so focus on canceling pending buys."
         )
     return tuple(ideas)
+
+
+def normalize_risk_mode(value: str | None) -> str:
+    mode = (value or "conservative").strip().lower()
+    if mode not in {"conservative", "balanced", "aggressive"}:
+        raise ValueError("risk mode must be conservative, balanced, or aggressive")
+    return mode
 
 
 def _review_other_symbol_order(
@@ -320,6 +369,68 @@ def _zero_capacity_buy_reason(
         f"Cancel this buy: current {traded} exposure is already {_money(current_value)} "
         f"vs max {_money(max_exposure)}, order notional is {_money(order.exposure)}, "
         f"and filling this order would raise exposure to {_money(projected)}."
+    )
+
+
+def _balanced_buy_action(
+    order: OpenOrder,
+    traded: str,
+    current_value: float,
+    max_exposure: float | None,
+    remaining_buy_capacity: float | None,
+    first_ladder: float | None,
+    weak_setup: bool,
+) -> tuple[str, str]:
+    if first_ladder is not None and order.limit_price <= first_ladder * 0.97:
+        return (
+            "REVIEW",
+            f"Balanced mode: deep {traded} buy is below/near the deeper ladder area; "
+            f"exposure warning remains because filling it projects exposure to "
+            f"{_money(current_value + order.exposure)}.",
+        )
+    if remaining_buy_capacity is not None and remaining_buy_capacity <= 0:
+        return "CANCEL", _zero_capacity_buy_reason(order, traded, current_value, max_exposure)
+    if weak_setup and first_ladder is not None and order.limit_price > first_ladder:
+        return (
+            "REDUCE",
+            "Balanced mode: model setup is weak, so shallow/high pending buys should be reduced.",
+        )
+    if remaining_buy_capacity is not None and order.exposure > remaining_buy_capacity:
+        return (
+            "REDUCE",
+            f"Balanced mode: order notional {_money(order.exposure)} exceeds remaining "
+            f"buy capacity {_money(remaining_buy_capacity)}.",
+        )
+    return "KEEP", "Balanced mode: order fits capacity or ladder context."
+
+
+def _aggressive_buy_action(
+    order: OpenOrder,
+    traded: str,
+    current_value: float,
+    max_exposure: float | None,
+    first_ladder: float | None,
+    weak_setup: bool,
+) -> tuple[str, str]:
+    projected = current_value + order.exposure
+    if first_ladder is not None and order.limit_price <= first_ladder * 0.97:
+        return (
+            "REVIEW",
+            f"Aggressive mode accepts higher drawdown risk; this deeper {traded} buy is "
+            f"below the first ladder area. Exposure warning: current {_money(current_value)} "
+            f"vs max {_money(max_exposure)}, projected {_money(projected)}.",
+        )
+    if first_ladder is not None and order.limit_price <= first_ladder:
+        return (
+            "REVIEW",
+            f"Aggressive mode: near-ladder {traded} buy can be reviewed, but exposure warning "
+            f"remains because projected exposure is {_money(projected)} vs max {_money(max_exposure)}.",
+        )
+    action = "REDUCE" if weak_setup else "MOVE_LOWER"
+    return (
+        action,
+        f"Aggressive mode still avoids shallow/high buys when setup is weak; move lower toward "
+        f"the ladder. Projected exposure would be {_money(projected)}.",
     )
 
 
