@@ -65,6 +65,14 @@ def test_gui_render_includes_local_status_and_forms(tmp_path: Path, monkeypatch)
     assert "TQQQ" in html
     assert "/position/set" in html
     assert "/order/add" in html
+    assert 'data-tab="daily"' in html
+    assert 'data-tab="positions"' in html
+    assert 'data-tab="orders"' in html
+    assert 'data-tab="edit"' in html
+    assert ">Daily</button>" in html
+    assert ">Positions</button>" in html
+    assert ">Open orders</button>" in html
+    assert ">Edit local CSVs</button>" in html
 
 
 def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, monkeypatch):
@@ -74,6 +82,10 @@ def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, 
     html = render_status_page()
 
     assert "Daily decision" in html
+    assert 'id="tab-daily"' in html
+    assert "Portfolio summary" in html
+    assert "Dates and updates" in html
+    assert "mini-scroll" in html
     assert "ACTION" not in html
     assert "HOLD" in html
     assert "background: radial-gradient" in html
@@ -104,6 +116,8 @@ def test_gui_has_live_clock_hourly_refresh_and_scrollable_tables(tmp_path, monke
     assert "resize: vertical" in html
     assert "overflow-y: auto" in html
     assert "position: sticky" in html
+    assert "tab-panel active" in html
+    assert "button.dataset.tab" in html
 
 
 def test_gui_render_does_not_invoke_full_daily_workflow(tmp_path, monkeypatch):
@@ -120,20 +134,54 @@ def test_gui_render_does_not_invoke_full_daily_workflow(tmp_path, monkeypatch):
     assert "Trading Lab" in render_status_page()
 
 
-def test_gui_shows_holdings_and_order_recommendations(tmp_path, monkeypatch):
+def test_gui_combines_positions_with_holdings_review(tmp_path, monkeypatch):
     _write_dashboard_fixture(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     html = render_status_page()
 
-    assert "Portfolio holdings review" in html
+    assert 'id="tab-positions"' in html
     assert "META" in html
+    assert "Review status" in html
+    assert "Review note" in html
     assert "OK_SMALL" in html
     assert "PRICE_MISSING" in html
-    assert "Open-order recommendations" in html
+    assert "Portfolio holdings review" not in html
+    assert "No model-backed buy/sell predictions are claimed" in html
+
+
+def test_gui_combines_open_orders_with_recommendations(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page()
+
+    assert 'id="tab-orders"' in html
+    assert "Recommendation" in html
+    assert "Price relation" in html
+    assert "Ladder relation" in html
+    assert "Projected exposure" in html
     assert "CANCEL" in html or "REDUCE" in html
+    assert "action-CANCEL" in html or "action-REDUCE" in html
+    assert "action-KEEP" in html
     assert "Sell order reduces" in html
     assert "No model signal" in html
+    assert "Open-order recommendations" not in html
+
+
+def test_gui_edit_tab_contains_local_csv_warning_and_forms(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page()
+
+    assert 'id="tab-edit"' in html
+    assert "Local CSV update only" in html
+    assert 'action="/account"' in html
+    assert 'action="/position/set"' in html
+    assert 'action="/position/update"' in html
+    assert 'action="/order/add"' in html
+    assert 'action="/order/clear"' in html
 
 
 def test_gui_apply_form_actions_edit_local_csvs(tmp_path: Path, monkeypatch):

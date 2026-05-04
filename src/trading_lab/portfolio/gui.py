@@ -21,7 +21,6 @@ from trading_lab.portfolio.state import (
     append_open_order,
     build_portfolio_state,
     clear_open_orders,
-    summarize_portfolio_state,
     update_position_quantity,
     write_account_value,
     write_position,
@@ -98,22 +97,24 @@ def render_status_page() -> str:
     h2 {{ font-size: 18px; margin-bottom: 12px; }}
     h3 {{ font-size: 14px; margin-bottom: 8px; color: var(--muted); }}
     .muted {{ color: var(--muted); }}
-    .grid {{ display: grid; grid-template-columns: 1.3fr .9fr; gap: 16px; }}
+    .grid {{ display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; }}
     .card {{
       background: color-mix(in srgb, var(--panel) 94%, #6f42c1 6%);
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 16px;
+      padding: 14px;
       box-shadow: 0 16px 50px rgba(0,0,0,.28);
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }}
-    .metric-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
-    .metric {{ background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
+    .metric-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; }}
+    .metric {{ background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px; }}
     .metric span {{ display: block; color: var(--muted); font-size: 12px; }}
-    .metric strong {{ display: block; margin-top: 3px; font-size: 16px; }}
-    .action {{ font-size: 40px; color: var(--accent); letter-spacing: 0; }}
+    .metric strong {{ display: block; margin-top: 2px; font-size: 15px; }}
+    .action {{ font-size: 34px; color: var(--accent); letter-spacing: 0; line-height: 1; }}
+    .tight p {{ margin: 8px 0; }}
     .danger {{ color: var(--danger); }}
     .ok {{ color: var(--ok); }}
+    .review {{ color: #e5c07b; }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 8px; overflow: hidden; }}
     th, td {{ border-bottom: 1px solid var(--line); padding: 9px 8px; text-align: left; }}
     th {{
@@ -132,7 +133,25 @@ def render_status_page() -> str:
       border-radius: 8px;
       min-height: 230px;
     }}
+    .mini-scroll {{
+      max-height: 138px;
+      min-height: 118px;
+    }}
     .table-scroll table {{ margin-top: 0; }}
+    .tabs {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }}
+    .tab-button {{
+      width: auto;
+      margin: 0;
+      padding: 9px 14px;
+      background: #120c1c;
+      color: var(--muted);
+    }}
+    .tab-button.active {{ background: #6f42c1; color: var(--text); }}
+    .tab-panel {{ display: none; }}
+    .tab-panel.active {{ display: block; }}
+    .action-CANCEL, .action-REDUCE {{ color: var(--danger); font-weight: 700; }}
+    .action-KEEP {{ color: var(--ok); font-weight: 700; }}
+    .action-REVIEW, .action-MOVE_LOWER {{ color: #e5c07b; font-weight: 700; }}
     form {{
       display: grid;
       grid-template-columns: repeat(5, minmax(120px, 1fr));
@@ -163,115 +182,110 @@ def render_status_page() -> str:
 </head>
 <body>
 <main>
-  <header>
-    <div>
-      <h1>Trading Lab</h1>
-      <div class="muted">Local decision dashboard. No broker connection.</div>
-    </div>
-    {_header_metric("Local time", metadata["local_time"], value_id="local-clock")}
-    {_header_metric("Last local refresh", metadata["local_time"], value_id="last-refresh")}
-    {_header_metric("Report date", metadata["report_date"])}
-    {_header_metric("Account value", _money(state.account_value))}
-    {_header_metric("Cash", _money(state.cash))}
-  </header>
-  <p class="muted">Local dashboard refreshes hourly from existing files. Run tlfull to update market/model reports.</p>
+  <h1>Trading Lab</h1>
+  <div class="muted">Local decision dashboard. No broker connection.</div>
+  <nav class="tabs" aria-label="Dashboard tabs">
+    <button class="tab-button active" type="button" data-tab="daily">Daily</button>
+    <button class="tab-button" type="button" data-tab="positions">Positions</button>
+    <button class="tab-button" type="button" data-tab="orders">Open orders</button>
+    <button class="tab-button" type="button" data-tab="edit">Edit local CSVs</button>
+  </nav>
 
-  <section class="card">
-    <h2>Daily decision</h2>
-    <div class="action">{escape(decision["action"])}</div>
-    <p><strong>Now:</strong> {escape(decision["now"])}</p>
-    <p><strong>Decision:</strong> {escape(decision["sentence"])}</p>
-    <div class="metric-grid">
-      {_metric("Traded symbol", decision["traded_symbol"])}
-      {_metric("Current position", _quantity(traded_item.quantity if traded_item else 0))}
-      {_metric("Current allocation", _allocation(traded_item.allocation_pct if traded_item else None))}
-      {_metric("Pending buys", _money(traded_item.pending_buy_value if traded_item else 0))}
-      {_metric("Pending sells", _money(traded_item.pending_sell_value if traded_item else 0))}
-      {_metric("Max exposure", decision["max_exposure"])}
-      {_metric("Buy capacity", decision["buy_capacity"])}
-      {_metric("Portfolio action", decision["portfolio_action"])}
-      {_metric("Total buy orders", _money(order_summary.total_pending_buy_notional))}
-      {_metric("Total sell orders", _money(order_summary.total_pending_sell_notional))}
-      {_metric("Flagged orders", str(order_summary.cancel_reduce_review_count))}
-    </div>
-    {_top_order_actions(order_summary.top_actions)}
-    <p class="muted">Model probability: {escape(decision["probability"])} | Active target: {escape(decision["target"])}</p>
-    {_blockers(decision["blockers"])}
-  </section>
+  <section class="tab-panel active" id="tab-daily">
+    <header>
+      {_header_metric("Local time", metadata["local_time"], value_id="local-clock")}
+      {_header_metric("Last local refresh", metadata["local_time"], value_id="last-refresh")}
+      {_header_metric("Report date", metadata["report_date"])}
+      {_header_metric("Account value", _money(state.account_value))}
+      {_header_metric("Cash", _money(state.cash))}
+    </header>
+    <p class="muted">Local dashboard refreshes hourly from existing files. Run tlfull to update market/model reports.</p>
 
-  <div class="grid">
-    <section class="card">
-      <h2>Portfolio summary</h2>
+    <section class="card tight">
+      <h2>Daily decision</h2>
+      <div class="action">{escape(decision["action"])}</div>
+      <p><strong>Now:</strong> {escape(decision["now"])}</p>
+      <p><strong>Decision:</strong> {escape(decision["sentence"])}</p>
       <div class="metric-grid">
-        {_metric("Total positions", str(len(state.positions)))}
-        {_metric("Open orders", str(len(state.open_orders)))}
-        {_metric("Known equity value", _money(state.total_market_value))}
-        {_metric("Cash", _money(state.cash))}
-        {_metric("Account value", _money(state.account_value))}
-        {_metric("Missing prices", str(len(state.warnings)))}
+        {_metric("Traded symbol", decision["traded_symbol"])}
+        {_metric("Current position", _quantity(traded_item.quantity if traded_item else 0))}
+        {_metric("Current allocation", _allocation(traded_item.allocation_pct if traded_item else None))}
+        {_metric("Pending buys", _money(traded_item.pending_buy_value if traded_item else 0))}
+        {_metric("Pending sells", _money(traded_item.pending_sell_value if traded_item else 0))}
+        {_metric("Max exposure", decision["max_exposure"])}
+        {_metric("Buy capacity", decision["buy_capacity"])}
+        {_metric("Portfolio action", decision["portfolio_action"])}
+        {_metric("Total buy orders", _money(order_summary.total_pending_buy_notional))}
+        {_metric("Total sell orders", _money(order_summary.total_pending_sell_notional))}
+        {_metric("Flagged orders", str(order_summary.cancel_reduce_review_count))}
       </div>
-      {_warnings(state.warnings)}
+      {_top_order_actions(order_summary.top_actions)}
+      <p class="muted">Model probability: {escape(decision["probability"])} | Active target: {escape(decision["target"])}</p>
+      {_blockers(decision["blockers"])}
     </section>
 
+    <div class="grid">
+      <section class="card">
+        <h2>Portfolio summary</h2>
+        <div class="metric-grid">
+          {_metric("Total positions", str(len(state.positions)))}
+          {_metric("Open orders", str(len(state.open_orders)))}
+          {_metric("Known equity value", _money(state.total_market_value))}
+          {_metric("Cash", _money(state.cash))}
+          {_metric("Account value", _money(state.account_value))}
+          {_metric("Missing prices", str(len(state.warnings)))}
+        </div>
+        {_warnings(state.warnings)}
+      </section>
+
+      <section class="card">
+        <h2>Dates and updates</h2>
+        <div class="table-scroll mini-scroll">
+          <table>
+            <tr><th>Item</th><th>Latest</th></tr>
+            {_date_row("positions.csv modified", metadata["positions_mtime"])}
+            {_date_row("open_orders.csv modified", metadata["orders_mtime"])}
+            {_date_row("account.csv modified", metadata["account_mtime"])}
+            {_date_row("Market CSV date", metadata["market_date"])}
+            {_date_row("Daily report date", metadata["report_date"])}
+          </table>
+        </div>
+        <p class="muted">If prices are stale or missing, run market update or tlfull.</p>
+      </section>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-positions">
     <section class="card">
-      <h2>Dates and updates</h2>
-      <table>
-        <tr><th>Item</th><th>Latest</th></tr>
-        {_date_row("positions.csv modified", metadata["positions_mtime"])}
-        {_date_row("open_orders.csv modified", metadata["orders_mtime"])}
-        {_date_row("account.csv modified", metadata["account_mtime"])}
-        {_date_row("Market CSV date", metadata["market_date"])}
-        {_date_row("Daily report date", metadata["report_date"])}
-      </table>
-      <p class="muted">If prices are stale or missing, run market update or the daily workflow.</p>
+      <h2>Positions</h2>
+      <p class="muted">No model-backed buy/sell predictions are claimed for non-traded holdings.</p>
+      <div class="table-scroll">
+        <table>
+          <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th><th>Review status</th><th>Review note</th></tr>
+          {_position_review_rows(state, holding_reviews, decision["traded_symbol"])}
+        </table>
+      </div>
     </section>
-  </div>
-
-  <section class="card">
-    <h2>Portfolio holdings review</h2>
-    <div class="table-scroll">
-      <table>
-        <tr><th>Symbol</th><th>Quantity</th><th>Value</th><th>Allocation</th><th>Price</th><th>Status</th></tr>
-        {_holding_review_rows(holding_reviews)}
-      </table>
-    </div>
-    <p class="muted">No model-backed buy/sell predictions are claimed for non-traded holdings.</p>
   </section>
 
-  <section class="card">
-    <h2>Open-order recommendations</h2>
-    <div class="table-scroll">
-      <table>
-        <tr><th>Action</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Limit</th><th>Notional</th><th>Status</th><th>Price</th><th>Ladder</th><th>Projected</th><th>Reason</th></tr>
-        {_order_review_rows(order_reviews)}
-      </table>
-    </div>
+  <section class="tab-panel" id="tab-orders">
+    <section class="card">
+      <h2>Open orders</h2>
+      <div class="table-scroll">
+        <table>
+          <tr><th>Recommendation</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Notional</th><th>Status</th><th>Submitted</th><th>Price relation</th><th>Ladder relation</th><th>Projected exposure</th><th>Reason</th></tr>
+          {_combined_order_rows(state, order_reviews)}
+        </table>
+      </div>
+    </section>
   </section>
 
-  <section class="card">
-    <h2>Positions</h2>
-    <div class="table-scroll">
-      <table>
-        <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th></tr>
-        {_position_rows(state)}
-      </table>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>Open orders</h2>
-    <div class="table-scroll">
-      <table>
-        <tr><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Notional</th><th>Status</th><th>Submitted</th></tr>
-        {_order_rows(state)}
-      </table>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>Edit local CSVs</h2>
-    <div class="card warning">Local CSV update only. This does not place, cancel, or modify broker orders.</div>
-    {_forms()}
+  <section class="tab-panel" id="tab-edit">
+    <section class="card">
+      <h2>Edit local CSVs</h2>
+      <div class="card warning">Local CSV update only. This does not place, cancel, or modify broker orders.</div>
+      {_forms()}
+    </section>
   </section>
 </main>
 <script>
@@ -287,6 +301,15 @@ def render_status_page() -> str:
   updateLocalClock();
   setInterval(updateLocalClock, 1000);
   setTimeout(function () {{ window.location.reload(); }}, 60 * 60 * 1000);
+  document.querySelectorAll('.tab-button').forEach(function (button) {{
+    button.addEventListener('click', function () {{
+      document.querySelectorAll('.tab-button').forEach(function (node) {{ node.classList.remove('active'); }});
+      document.querySelectorAll('.tab-panel').forEach(function (node) {{ node.classList.remove('active'); }});
+      button.classList.add('active');
+      var panel = document.getElementById('tab-' + button.dataset.tab);
+      if (panel) {{ panel.classList.add('active'); }}
+    }});
+  }});
 </script>
 </body>
 </html>
@@ -490,6 +513,61 @@ def _order_rows(state) -> str:
             "</tr>"
         )
     return "\n".join(rows) or "<tr><td colspan='8'>No local open orders.</td></tr>"
+
+
+def _position_review_rows(state, reviews, traded_symbol: str) -> str:
+    review_map = {row.symbol: row for row in reviews}
+    updated = {position.symbol: position.updated_at for position in state.positions}
+    rows = []
+    for symbol in sorted(state.symbols):
+        item = state.symbols[symbol]
+        review = review_map.get(symbol)
+        if symbol == traded_symbol:
+            status = "TRADED_SYMBOL"
+            note = "Primary modeled symbol for daily decision."
+        elif review is None:
+            status = "REVIEW"
+            note = "No non-traded holding review available."
+        else:
+            status = review.status
+            note = f"Price {review.price_status}; no model-backed prediction."
+        rows.append(
+            "<tr>"
+            f"<td>{escape(symbol)}</td>"
+            f"<td>{item.quantity:g}</td>"
+            f"<td>{_money(item.latest_price)}</td>"
+            f"<td>{_money(item.market_value)}</td>"
+            f"<td>{_allocation(item.allocation_pct)}</td>"
+            f"<td>{escape(updated.get(symbol, ''))}</td>"
+            f"<td>{escape(status)}</td>"
+            f"<td>{escape(note)}</td>"
+            "</tr>"
+        )
+    return "\n".join(rows) or "<tr><td colspan='8'>No local positions or orders.</td></tr>"
+
+
+def _combined_order_rows(state, reviews) -> str:
+    rows = []
+    for order, review in zip(state.open_orders, reviews):
+        rows.append(
+            "<tr>"
+            f"<td class=\"action-{escape(review.recommended_action)}\">"
+            f"{escape(review.recommended_action)}</td>"
+            f"<td>{escape(order.symbol)}</td>"
+            f"<td>{escape(order.side)}</td>"
+            f"<td>{escape(order.type)}</td>"
+            f"<td>{order.quantity:g}</td>"
+            f"<td>{_money(order.limit_price)}</td>"
+            f"<td>{_money(order.exposure)}</td>"
+            f"<td>{escape(order.status)}</td>"
+            f"<td>{escape(order.submitted_at)}</td>"
+            f"<td>{escape(review.price_relation)}</td>"
+            f"<td>{escape(review.ladder_relation)}</td>"
+            f"<td>{_money(review.projected_exposure)}</td>"
+            f"<td>{escape(review.reason)}</td>"
+            "</tr>"
+        )
+    return "\n".join(rows) or "<tr><td colspan='13'>No local open orders.</td></tr>"
 
 
 def _holding_review_rows(rows) -> str:
