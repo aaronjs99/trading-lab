@@ -26,6 +26,11 @@ from trading_lab.portfolio.state import (
     write_account_value,
     write_position,
 )
+from trading_lab.portfolio.review import (
+    review_holdings,
+    review_open_orders,
+    summarize_order_reviews,
+)
 
 
 def render_status_page() -> str:
@@ -35,6 +40,24 @@ def render_status_page() -> str:
     decision = _decision_view_model(decision_text, decision_inputs)
     traded_item = state.symbols.get(decision["traded_symbol"])
     metadata = _metadata(decision["traded_symbol"])
+    max_allocation = _percent(decision_inputs.summary.get("max_traded_allocation")) if decision_inputs else None
+    holding_reviews = (
+        review_holdings(state, decision_inputs.traded_symbol) if decision_inputs is not None else ()
+    )
+    order_reviews = (
+        review_open_orders(
+            state,
+            decision_inputs.traded_symbol,
+            account_value=decision_inputs.account_value,
+            max_allocation=max_allocation,
+            suggested_action=decision_inputs.summary.get("suggested_action", "NO_TRADE"),
+            strategy_eligible=decision_inputs.summary.get("strategy_eligible", "").upper() == "YES",
+            ladder=decision_inputs.ladder,
+        )
+        if decision_inputs is not None
+        else ()
+    )
+    order_summary = summarize_order_reviews(order_reviews)
 
     return f"""<!doctype html>
 <html>
@@ -65,7 +88,7 @@ def render_status_page() -> str:
     main {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
     header {{
       display: grid;
-      grid-template-columns: 1fr repeat(4, minmax(120px, auto));
+      grid-template-columns: 1fr repeat(5, minmax(120px, auto));
       gap: 12px;
       align-items: end;
       margin-bottom: 18px;
@@ -93,7 +116,23 @@ def render_status_page() -> str:
     .ok {{ color: var(--ok); }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 8px; overflow: hidden; }}
     th, td {{ border-bottom: 1px solid var(--line); padding: 9px 8px; text-align: left; }}
-    th {{ color: var(--muted); font-weight: 600; background: rgba(255,255,255,.03); }}
+    th {{
+      color: var(--muted);
+      font-weight: 600;
+      background: #171123;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }}
+    .table-scroll {{
+      max-height: 360px;
+      overflow-y: auto;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-height: 230px;
+    }}
+    .table-scroll table {{ margin-top: 0; }}
     form {{
       display: grid;
       grid-template-columns: repeat(5, minmax(120px, 1fr));
@@ -129,11 +168,13 @@ def render_status_page() -> str:
       <h1>Trading Lab</h1>
       <div class="muted">Local decision dashboard. No broker connection.</div>
     </div>
-    {_header_metric("Local time", metadata["local_time"])}
+    {_header_metric("Local time", metadata["local_time"], value_id="local-clock")}
+    {_header_metric("Last local refresh", metadata["local_time"], value_id="last-refresh")}
     {_header_metric("Report date", metadata["report_date"])}
     {_header_metric("Account value", _money(state.account_value))}
     {_header_metric("Cash", _money(state.cash))}
   </header>
+  <p class="muted">Local dashboard refreshes hourly from existing files. Run tlfull to update market/model reports.</p>
 
   <section class="card">
     <h2>Daily decision</h2>
@@ -149,7 +190,11 @@ def render_status_page() -> str:
       {_metric("Max exposure", decision["max_exposure"])}
       {_metric("Buy capacity", decision["buy_capacity"])}
       {_metric("Portfolio action", decision["portfolio_action"])}
+      {_metric("Total buy orders", _money(order_summary.total_pending_buy_notional))}
+      {_metric("Total sell orders", _money(order_summary.total_pending_sell_notional))}
+      {_metric("Flagged orders", str(order_summary.cancel_reduce_review_count))}
     </div>
+    {_top_order_actions(order_summary.top_actions)}
     <p class="muted">Model probability: {escape(decision["probability"])} | Active target: {escape(decision["target"])}</p>
     {_blockers(decision["blockers"])}
   </section>
@@ -183,19 +228,44 @@ def render_status_page() -> str:
   </div>
 
   <section class="card">
+    <h2>Portfolio holdings review</h2>
+    <div class="table-scroll">
+      <table>
+        <tr><th>Symbol</th><th>Quantity</th><th>Value</th><th>Allocation</th><th>Price</th><th>Status</th></tr>
+        {_holding_review_rows(holding_reviews)}
+      </table>
+    </div>
+    <p class="muted">No model-backed buy/sell predictions are claimed for non-traded holdings.</p>
+  </section>
+
+  <section class="card">
+    <h2>Open-order recommendations</h2>
+    <div class="table-scroll">
+      <table>
+        <tr><th>Action</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Limit</th><th>Notional</th><th>Status</th><th>Price</th><th>Ladder</th><th>Projected</th><th>Reason</th></tr>
+        {_order_review_rows(order_reviews)}
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>Positions</h2>
-    <table>
-      <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th></tr>
-      {_position_rows(state)}
-    </table>
+    <div class="table-scroll">
+      <table>
+        <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th></tr>
+        {_position_rows(state)}
+      </table>
+    </div>
   </section>
 
   <section class="card">
     <h2>Open orders</h2>
-    <table>
-      <tr><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Notional</th><th>Status</th><th>Submitted</th></tr>
-      {_order_rows(state)}
-    </table>
+    <div class="table-scroll">
+      <table>
+        <tr><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Notional</th><th>Status</th><th>Submitted</th></tr>
+        {_order_rows(state)}
+      </table>
+    </div>
   </section>
 
   <section class="card">
@@ -204,6 +274,20 @@ def render_status_page() -> str:
     {_forms()}
   </section>
 </main>
+<script>
+  function pad(n) {{ return String(n).padStart(2, '0'); }}
+  function formatLocalTime(d) {{
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }}
+  function updateLocalClock() {{
+    var node = document.getElementById('local-clock');
+    if (node) {{ node.textContent = formatLocalTime(new Date()); }}
+  }}
+  updateLocalClock();
+  setInterval(updateLocalClock, 1000);
+  setTimeout(function () {{ window.location.reload(); }}, 60 * 60 * 1000);
+</script>
 </body>
 </html>
 """
@@ -408,6 +492,54 @@ def _order_rows(state) -> str:
     return "\n".join(rows) or "<tr><td colspan='8'>No local open orders.</td></tr>"
 
 
+def _holding_review_rows(rows) -> str:
+    out = []
+    for row in rows:
+        out.append(
+            "<tr>"
+            f"<td>{escape(row.symbol)}</td>"
+            f"<td>{row.quantity:g}</td>"
+            f"<td>{_money(row.value)}</td>"
+            f"<td>{_allocation(row.allocation)}</td>"
+            f"<td>{escape(row.price_status)}</td>"
+            f"<td>{escape(row.status)}</td>"
+            "</tr>"
+        )
+    return "\n".join(out) or "<tr><td colspan='6'>No non-traded holdings.</td></tr>"
+
+
+def _order_review_rows(rows) -> str:
+    out = []
+    for row in rows:
+        out.append(
+            "<tr>"
+            f"<td>{escape(row.recommended_action)}</td>"
+            f"<td>{escape(row.symbol)}</td>"
+            f"<td>{escape(row.side)}</td>"
+            f"<td>{row.quantity:g}</td>"
+            f"<td>{_money(row.limit_price)}</td>"
+            f"<td>{_money(row.notional)}</td>"
+            f"<td>{escape(row.status)}</td>"
+            f"<td>{escape(row.price_relation)}</td>"
+            f"<td>{escape(row.ladder_relation)}</td>"
+            f"<td>{_money(row.projected_exposure)}</td>"
+            f"<td>{escape(row.reason)}</td>"
+            "</tr>"
+        )
+    return "\n".join(out) or "<tr><td colspan='11'>No local open orders.</td></tr>"
+
+
+def _top_order_actions(rows) -> str:
+    if not rows:
+        return '<p class="ok">No cancel/reduce/review order actions.</p>'
+    items = "".join(
+        f"<li>{escape(row.recommended_action)} {escape(row.side)} {escape(row.symbol)} "
+        f"{row.quantity:g} @ {_money(row.limit_price)}: {escape(row.reason)}</li>"
+        for row in rows
+    )
+    return f'<div class="card warning"><h3>Top order actions</h3><ul>{items}</ul></div>'
+
+
 def _warnings(warnings: tuple[str, ...]) -> str:
     if not warnings:
         return '<p class="ok">All held symbols with quantities have known local prices.</p>'
@@ -426,8 +558,9 @@ def _metric(label: str, value: str) -> str:
     return f'<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>'
 
 
-def _header_metric(label: str, value: str) -> str:
-    return f'<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>'
+def _header_metric(label: str, value: str, value_id: str = "") -> str:
+    attr = f' id="{escape(value_id)}"' if value_id else ""
+    return f'<div class="metric"><span>{escape(label)}</span><strong{attr}>{escape(value)}</strong></div>'
 
 
 def _date_row(label: str, value: str) -> str:
@@ -459,6 +592,18 @@ def _report_date(path: Path) -> str:
         if line.startswith("Date:"):
             return line.split(":", 1)[1].strip()
     return "unknown"
+
+
+def _percent(value: str | None) -> float | None:
+    if value is None:
+        return None
+    text = value.strip()
+    try:
+        if text.endswith("%"):
+            return float(text[:-1]) / 100.0
+        return float(text)
+    except ValueError:
+        return None
 
 
 def _money(value: float | None) -> str:

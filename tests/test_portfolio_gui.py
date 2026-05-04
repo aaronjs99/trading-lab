@@ -29,12 +29,17 @@ def _write_dashboard_fixture(tmp_path: Path) -> None:
     market_dir.mkdir(parents=True)
     reports_dir.mkdir(parents=True)
     (portfolio_dir / "positions.csv").write_text(
-        "symbol,quantity,notes,updated_at\nTQQQ,4,current_position,2026-05-04\n",
+        "symbol,quantity,notes,updated_at\n"
+        "TQQQ,4,current_position,2026-05-04\n"
+        "META,0.04,current_position,2026-05-04\n"
+        "MISSING,1,current_position,2026-05-04\n",
         encoding="utf-8",
     )
     (portfolio_dir / "open_orders.csv").write_text(
         "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n"
-        "TQQQ,buy,limit,10,58.00,GTC,placed,2026-04-29,current_open_order\n",
+        "TQQQ,buy,limit,10,58.00,GTC,placed,2026-04-29,current_open_order\n"
+        "TQQQ,sell,limit,4,68.50,GTC,placed,2026-04-29,current_open_order\n"
+        "META,buy,limit,1,500.00,GTC,placed,2026-04-29,current_open_order\n",
         encoding="utf-8",
     )
     (portfolio_dir / "account.csv").write_text(
@@ -42,6 +47,7 @@ def _write_dashboard_fixture(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (market_dir / "TQQQ.csv").write_text("date,close\n2026-05-04,60\n", encoding="utf-8")
+    (market_dir / "META.csv").write_text("date,close\n2026-05-04,600\n", encoding="utf-8")
     (reports_dir / "daily_decision_summary.txt").write_text(SUMMARY, encoding="utf-8")
     (reports_dir / "selected_model_latest_signal.csv").write_text(
         "date,model,probability\n2026-05-04,demo,0.58\n",
@@ -82,6 +88,52 @@ def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, 
     assert "$1,624.35" in html
     assert "$5,000.00" in html
     assert "Local CSV update only" in html
+
+
+def test_gui_has_live_clock_hourly_refresh_and_scrollable_tables(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page()
+
+    assert "id=\"local-clock\"" in html
+    assert "id=\"last-refresh\"" in html
+    assert "setInterval(updateLocalClock, 1000)" in html
+    assert "60 * 60 * 1000" in html
+    assert "Local dashboard refreshes hourly from existing files" in html
+    assert "resize: vertical" in html
+    assert "overflow-y: auto" in html
+    assert "position: sticky" in html
+
+
+def test_gui_render_does_not_invoke_full_daily_workflow(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    from trading_lab.workflows.daily import DailyWorkflow
+
+    def fail_run(self):
+        raise AssertionError("GUI must not run daily workflow")
+
+    monkeypatch.setattr(DailyWorkflow, "run", fail_run)
+
+    assert "Trading Lab" in render_status_page()
+
+
+def test_gui_shows_holdings_and_order_recommendations(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page()
+
+    assert "Portfolio holdings review" in html
+    assert "META" in html
+    assert "OK_SMALL" in html
+    assert "PRICE_MISSING" in html
+    assert "Open-order recommendations" in html
+    assert "CANCEL" in html or "REDUCE" in html
+    assert "Sell order reduces" in html
+    assert "No model signal" in html
 
 
 def test_gui_apply_form_actions_edit_local_csvs(tmp_path: Path, monkeypatch):

@@ -15,6 +15,11 @@ from trading_lab.portfolio.state import (
     build_portfolio_state,
     portfolio_files_exist,
 )
+from trading_lab.portfolio.review import (
+    review_holdings,
+    review_open_orders,
+    summarize_order_reviews,
+)
 
 
 MISSING_REPORTS_MESSAGE = "Missing reports. Run ./scripts/tl_full_daily.sh first."
@@ -252,6 +257,8 @@ def format_decision(inputs: DecisionInputs) -> str:
     lines.append(f"In cash: {_cash_sentence(inputs.cash)}")
     if inputs.portfolio_state is not None:
         lines.extend(["", *_portfolio_decision_lines(inputs, max_allocation)])
+        lines.extend(["", *_portfolio_holdings_review_lines(inputs)])
+        lines.extend(["", *_open_order_review_lines(inputs, max_allocation)])
 
     lines.extend(["", "Ladder prices:"])
     if inputs.ladder:
@@ -350,6 +357,70 @@ def _portfolio_action(
     if item.quantity > 0:
         return f"hold/trim existing {traded} position"
     return "do not add orders"
+
+
+def _portfolio_holdings_review_lines(inputs: DecisionInputs) -> list[str]:
+    state = inputs.portfolio_state
+    if state is None:
+        return []
+    reviews = review_holdings(state, inputs.traded_symbol)
+    lines = ["Portfolio holdings review:"]
+    if not reviews:
+        lines.append("- No non-traded holdings to review.")
+        return lines
+    for row in reviews:
+        value = _format_money(row.value)
+        allocation = _format_pct(row.allocation)
+        lines.append(
+            f"- {row.symbol}: qty {row.quantity:g}, value {value}, "
+            f"allocation {allocation}, price {row.price_status}, status {row.status}."
+        )
+    lines.append("- No model-backed predictions are claimed for non-traded holdings.")
+    return lines
+
+
+def _open_order_review_lines(
+    inputs: DecisionInputs,
+    max_allocation: float | None,
+) -> list[str]:
+    state = inputs.portfolio_state
+    if state is None:
+        return []
+    reviews = review_open_orders(
+        state,
+        inputs.traded_symbol,
+        account_value=inputs.account_value,
+        max_allocation=max_allocation,
+        suggested_action=inputs.summary.get("suggested_action", "NO_TRADE"),
+        strategy_eligible=inputs.summary.get("strategy_eligible", "").upper() == "YES",
+        ladder=inputs.ladder,
+    )
+    summary = summarize_order_reviews(reviews)
+    lines = ["Open-order review:"]
+    lines.append(f"- Total pending buy notional: {_format_money(summary.total_pending_buy_notional)}.")
+    lines.append(f"- Total pending sell notional: {_format_money(summary.total_pending_sell_notional)}.")
+    lines.append(f"- Orders to cancel/reduce/review: {summary.cancel_reduce_review_count}.")
+    if summary.top_actions:
+        lines.append("- Top order actions:")
+        for row in summary.top_actions:
+            lines.append(
+                f"  - {row.recommended_action} {row.side} {row.symbol} "
+                f"{row.quantity:g} @ {_format_money(row.limit_price)}: {row.reason}"
+            )
+    if not reviews:
+        lines.append("- No local open orders found.")
+        return lines
+    lines.append("- Order details:")
+    for row in reviews:
+        projected = _format_money(row.projected_exposure)
+        lines.append(
+            f"  - {row.recommended_action} {row.symbol} {row.side} "
+            f"{row.quantity:g} @ {_format_money(row.limit_price)} "
+            f"({_format_money(row.notional)}, status {row.status}, "
+            f"{row.price_relation}, ladder {row.ladder_relation}, "
+            f"projected exposure {projected}): {row.reason}"
+        )
+    return lines
 
 
 def _parse_summary(text: str) -> tuple[dict[str, str], list[str], list[str], list[str]]:
@@ -507,6 +578,18 @@ def _cash_sentence(cash: float | None) -> str:
     if cash is None:
         return "cash not supplied."
     return f"yes, ${cash:,.2f} supplied." if cash > 0 else "no cash supplied."
+
+
+def _format_money(value: float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return f"${value:,.2f}"
+
+
+def _format_pct(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    return f"{value:.1%}"
 
 
 def _float_or_none(value: str | None) -> float | None:
