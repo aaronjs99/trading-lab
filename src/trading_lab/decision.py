@@ -8,6 +8,7 @@ from pathlib import Path
 
 from trading_lab.config.profiles import PROFILE_ENV
 from trading_lab.portfolio.state import (
+    ACCOUNT_PATH,
     OPEN_ORDERS_PATH,
     POSITIONS_PATH,
     PortfolioState,
@@ -62,7 +63,7 @@ def render_daily_decision(
     positions: list[str] | tuple[str, ...] | None = None,
     positions_path: Path = POSITIONS_PATH,
     open_orders_path: Path = OPEN_ORDERS_PATH,
-    account_path: Path | None = None,
+    account_path: Path = ACCOUNT_PATH,
     market_dir: Path = DEFAULT_MARKET_DIR,
 ) -> str:
     """Render a fast read-only daily decision from existing report files."""
@@ -94,7 +95,7 @@ def load_decision_inputs(
     positions: list[str] | tuple[str, ...] | None = None,
     positions_path: Path = POSITIONS_PATH,
     open_orders_path: Path = OPEN_ORDERS_PATH,
-    account_path: Path | None = None,
+    account_path: Path = ACCOUNT_PATH,
     market_dir: Path = DEFAULT_MARKET_DIR,
 ) -> DecisionInputs | None:
     _ = manual_dir
@@ -102,12 +103,14 @@ def load_decision_inputs(
     if not summary_path.exists():
         return None
 
-    positions_path, open_orders_path, market_dir = _resolve_local_state_paths(
+    positions_path, open_orders_path, account_path, market_dir = _resolve_local_state_paths(
         reports_dir=reports_dir,
         positions_path=positions_path,
         open_orders_path=open_orders_path,
+        account_path=account_path,
         market_dir=market_dir,
     )
+    parsed_cli_positions = tuple(parse_position(value) for value in positions or ())
 
     summary_text = summary_path.read_text(encoding="utf-8")
     summary, reasons, blockers, ladder = _parse_summary(summary_text)
@@ -123,32 +126,37 @@ def load_decision_inputs(
         summary["max_traded_allocation"] = traded_allocation
 
     resolved_account_value = float(account_value if account_value is not None else 5000.0)
+    resolved_cash = cash
     local_portfolio = None
-    if portfolio_files_exist(positions_path, open_orders_path):
+    if portfolio_files_exist(positions_path, open_orders_path, account_path):
         local_portfolio = build_portfolio_state(
             positions_path=positions_path,
             open_orders_path=open_orders_path,
-            **({"account_path": account_path} if account_path is not None else {}),
+            account_path=account_path,
             market_dir=market_dir,
             account_value=account_value,
             cash=cash,
         )
         if local_portfolio.account_value is not None:
             resolved_account_value = float(local_portfolio.account_value)
+        if local_portfolio.cash is not None:
+            resolved_cash = local_portfolio.cash
 
-    if local_portfolio is not None:
+    if parsed_cli_positions:
+        parsed_positions = parsed_cli_positions
+    elif local_portfolio is not None:
         parsed_positions = tuple(
             Position(symbol=position.symbol, quantity=position.quantity)
             for position in local_portfolio.positions
         )
     else:
-        parsed_positions = tuple(parse_position(value) for value in positions or ())
+        parsed_positions = ()
 
     return DecisionInputs(
         profile=active_profile,
         traded_symbol=traded,
         account_value=resolved_account_value,
-        cash=cash,
+        cash=resolved_cash,
         positions=parsed_positions,
         summary=summary,
         reasons=tuple(reasons),
@@ -164,10 +172,11 @@ def _resolve_local_state_paths(
     reports_dir: Path,
     positions_path: Path,
     open_orders_path: Path,
+    account_path: Path,
     market_dir: Path,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     if reports_dir == DEFAULT_REPORTS_DIR:
-        return positions_path, open_orders_path, market_dir
+        return positions_path, open_orders_path, account_path, market_dir
 
     data_dir = reports_dir.parent
     resolved_positions = (
@@ -180,10 +189,15 @@ def _resolve_local_state_paths(
         if open_orders_path == OPEN_ORDERS_PATH
         else open_orders_path
     )
+    resolved_account = (
+        data_dir / "raw" / "portfolio" / "account.csv"
+        if account_path == ACCOUNT_PATH
+        else account_path
+    )
     resolved_market_dir = (
         data_dir / "raw" / "market" if market_dir == DEFAULT_MARKET_DIR else market_dir
     )
-    return resolved_positions, resolved_open_orders, resolved_market_dir
+    return resolved_positions, resolved_open_orders, resolved_account, resolved_market_dir
 
 
 def format_decision(inputs: DecisionInputs) -> str:
@@ -230,6 +244,9 @@ def format_decision(inputs: DecisionInputs) -> str:
         lines.append(f"Max {traded} exposure: ${max_dollars:,.2f}")
     if available_budget is not None:
         lines.append(f"Buy capacity now: ${available_budget:,.2f}")
+    lines.append(f"Account value: ${inputs.account_value:,.2f}")
+    if inputs.cash is not None:
+        lines.append(f"Cash: ${inputs.cash:,.2f}")
 
     lines.append(f"Already holding: {_holding_sentence(traded, held_qty, position_value)}")
     lines.append(f"In cash: {_cash_sentence(inputs.cash)}")

@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs
+import csv
 import webbrowser
 
+from trading_lab.decision import (
+    DEFAULT_REPORTS_DIR,
+    SUMMARY_FILE,
+    format_decision,
+    load_decision_inputs,
+)
 from trading_lab.portfolio.state import (
     ACCOUNT_PATH,
     OPEN_ORDERS_PATH,
@@ -21,85 +30,180 @@ from trading_lab.portfolio.state import (
 
 def render_status_page() -> str:
     state = build_portfolio_state()
-    position_rows = "\n".join(_position_row(item) for item in state.symbols.values())
-    if not position_rows:
-        position_rows = "<tr><td colspan='5'>No local positions or orders.</td></tr>"
-
-    order_rows = "\n".join(
-        "<tr>"
-        f"<td>{escape(order.symbol)}</td>"
-        f"<td>{escape(order.side)}</td>"
-        f"<td>{escape(order.type)}</td>"
-        f"<td>{order.quantity:g}</td>"
-        f"<td>{order.limit_price:.2f}</td>"
-        f"<td>{escape(order.status)}</td>"
-        "</tr>"
-        for order in state.open_orders
-    )
-    if not order_rows:
-        order_rows = "<tr><td colspan='6'>No local open orders.</td></tr>"
+    decision_inputs = load_decision_inputs()
+    decision_text = format_decision(decision_inputs) if decision_inputs is not None else ""
+    decision = _decision_view_model(decision_text, decision_inputs)
+    traded_item = state.symbols.get(decision["traded_symbol"])
+    metadata = _metadata(decision["traded_symbol"])
 
     return f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>trading-lab portfolio</title>
+  <title>Trading Lab Portfolio</title>
   <style>
-    body {{ font-family: system-ui, sans-serif; margin: 24px; max-width: 1100px; }}
-    table {{ border-collapse: collapse; width: 100%; margin: 12px 0 24px; }}
-    th, td {{ border: 1px solid #ccc; padding: 6px 8px; text-align: left; }}
-    form {{ border: 1px solid #ccc; padding: 12px; margin: 12px 0; }}
-    input, select, button {{ margin: 4px; }}
-    pre {{ background: #f6f6f6; padding: 12px; overflow: auto; }}
+    :root {{
+      color-scheme: dark;
+      --bg: #0b0711;
+      --panel: #16101f;
+      --panel-2: #1f1730;
+      --line: #35284c;
+      --text: #f4efff;
+      --muted: #b9abc9;
+      --accent: #b48cff;
+      --danger: #ff8fa3;
+      --ok: #7ee7b8;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: radial-gradient(circle at top left, #211333 0, var(--bg) 36%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      line-height: 1.4;
+    }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
+    header {{
+      display: grid;
+      grid-template-columns: 1fr repeat(4, minmax(120px, auto));
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 18px;
+    }}
+    h1, h2, h3 {{ margin: 0; }}
+    h1 {{ font-size: 28px; }}
+    h2 {{ font-size: 18px; margin-bottom: 12px; }}
+    h3 {{ font-size: 14px; margin-bottom: 8px; color: var(--muted); }}
+    .muted {{ color: var(--muted); }}
+    .grid {{ display: grid; grid-template-columns: 1.3fr .9fr; gap: 16px; }}
+    .card {{
+      background: color-mix(in srgb, var(--panel) 94%, #6f42c1 6%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 16px 50px rgba(0,0,0,.28);
+      margin-bottom: 16px;
+    }}
+    .metric-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
+    .metric {{ background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
+    .metric span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .metric strong {{ display: block; margin-top: 3px; font-size: 16px; }}
+    .action {{ font-size: 40px; color: var(--accent); letter-spacing: 0; }}
+    .danger {{ color: var(--danger); }}
+    .ok {{ color: var(--ok); }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 8px; overflow: hidden; }}
+    th, td {{ border-bottom: 1px solid var(--line); padding: 9px 8px; text-align: left; }}
+    th {{ color: var(--muted); font-weight: 600; background: rgba(255,255,255,.03); }}
+    form {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+      margin-top: 12px;
+    }}
+    label {{ color: var(--muted); font-size: 12px; }}
+    input, select, button {{
+      width: 100%;
+      margin-top: 4px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #0f0a17;
+      color: var(--text);
+      padding: 8px;
+    }}
+    button {{ background: #6f42c1; border-color: #8e62df; cursor: pointer; font-weight: 700; }}
+    .warning {{ border-color: #704155; color: #ffd3dc; background: #27121e; }}
+    .span-2 {{ grid-column: span 2; }}
+    .span-5 {{ grid-column: 1 / -1; }}
+    @media (max-width: 860px) {{
+      header, .grid, .metric-grid, form {{ grid-template-columns: 1fr; }}
+      .span-2, .span-5 {{ grid-column: auto; }}
+    }}
   </style>
 </head>
 <body>
-  <h1>Local portfolio</h1>
-  <p>Cash: {_money(state.cash)} | Account value: {_money(state.account_value)}</p>
-  <pre>{escape(summarize_portfolio_state(state))}</pre>
+<main>
+  <header>
+    <div>
+      <h1>Trading Lab</h1>
+      <div class="muted">Local decision dashboard. No broker connection.</div>
+    </div>
+    {_header_metric("Local time", metadata["local_time"])}
+    {_header_metric("Report date", metadata["report_date"])}
+    {_header_metric("Account value", _money(state.account_value))}
+    {_header_metric("Cash", _money(state.cash))}
+  </header>
 
-  <h2>Positions</h2>
-  <table>
-    <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th></tr>
-    {position_rows}
-  </table>
+  <section class="card">
+    <h2>Daily decision</h2>
+    <div class="action">{escape(decision["action"])}</div>
+    <p><strong>Now:</strong> {escape(decision["now"])}</p>
+    <p><strong>Decision:</strong> {escape(decision["sentence"])}</p>
+    <div class="metric-grid">
+      {_metric("Traded symbol", decision["traded_symbol"])}
+      {_metric("Current position", _quantity(traded_item.quantity if traded_item else 0))}
+      {_metric("Current allocation", _allocation(traded_item.allocation_pct if traded_item else None))}
+      {_metric("Pending buys", _money(traded_item.pending_buy_value if traded_item else 0))}
+      {_metric("Pending sells", _money(traded_item.pending_sell_value if traded_item else 0))}
+      {_metric("Max exposure", decision["max_exposure"])}
+      {_metric("Buy capacity", decision["buy_capacity"])}
+      {_metric("Portfolio action", decision["portfolio_action"])}
+    </div>
+    <p class="muted">Model probability: {escape(decision["probability"])} | Active target: {escape(decision["target"])}</p>
+    {_blockers(decision["blockers"])}
+  </section>
 
-  <h2>Open orders</h2>
-  <table>
-    <tr><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Status</th></tr>
-    {order_rows}
-  </table>
+  <div class="grid">
+    <section class="card">
+      <h2>Portfolio summary</h2>
+      <div class="metric-grid">
+        {_metric("Total positions", str(len(state.positions)))}
+        {_metric("Open orders", str(len(state.open_orders)))}
+        {_metric("Known equity value", _money(state.total_market_value))}
+        {_metric("Cash", _money(state.cash))}
+        {_metric("Account value", _money(state.account_value))}
+        {_metric("Missing prices", str(len(state.warnings)))}
+      </div>
+      {_warnings(state.warnings)}
+    </section>
 
-  <h2>Edit local CSVs</h2>
-  <form method="post" action="/account">
-    <label>Cash <input name="cash" type="number" step="any"></label>
-    <label>Account value <input name="account_value" type="number" step="any"></label>
-    <button type="submit">Save account</button>
-  </form>
-  <form method="post" action="/position/set">
-    <label>Symbol <input name="symbol" required></label>
-    <label>Quantity <input name="quantity" type="number" step="any" required></label>
-    <button type="submit">Set position</button>
-  </form>
-  <form method="post" action="/position/update">
-    <select name="side"><option>buy</option><option>sell</option></select>
-    <label>Symbol <input name="symbol" required></label>
-    <label>Quantity <input name="quantity" type="number" step="any" required></label>
-    <label><input name="allow_negative" type="checkbox" value="1"> allow negative</label>
-    <button type="submit">Apply position update</button>
-  </form>
-  <form method="post" action="/order/add">
-    <select name="side"><option>buy</option><option>sell</option></select>
-    <label>Symbol <input name="symbol" required></label>
-    <label>Quantity <input name="quantity" type="number" step="any" required></label>
-    <label>Limit <input name="limit_price" type="number" step="any" required></label>
-    <button type="submit">Add limit order</button>
-  </form>
-  <form method="post" action="/order/clear">
-    <label>Symbol <input name="symbol"></label>
-    <button type="submit">Clear symbol orders</button>
-    <button type="submit" name="all" value="1">Clear all orders</button>
-  </form>
+    <section class="card">
+      <h2>Dates and updates</h2>
+      <table>
+        <tr><th>Item</th><th>Latest</th></tr>
+        {_date_row("positions.csv modified", metadata["positions_mtime"])}
+        {_date_row("open_orders.csv modified", metadata["orders_mtime"])}
+        {_date_row("account.csv modified", metadata["account_mtime"])}
+        {_date_row("Market CSV date", metadata["market_date"])}
+        {_date_row("Daily report date", metadata["report_date"])}
+      </table>
+      <p class="muted">If prices are stale or missing, run market update or the daily workflow.</p>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Positions</h2>
+    <table>
+      <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th></tr>
+      {_position_rows(state)}
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Open orders</h2>
+    <table>
+      <tr><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Notional</th><th>Status</th><th>Submitted</th></tr>
+      {_order_rows(state)}
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Edit local CSVs</h2>
+    <div class="card warning">Local CSV update only. This does not place, cancel, or modify broker orders.</div>
+    {_forms()}
+  </section>
+</main>
 </body>
 </html>
 """
@@ -140,19 +244,6 @@ def apply_form_action(path: str, fields: dict[str, str]) -> str:
         clear_open_orders(OPEN_ORDERS_PATH, None if fields.get("all") == "1" else symbol)
         return "cleared local orders"
     raise ValueError(f"Unknown form action: {path}")
-
-
-def _position_row(item) -> str:
-    allocation = f"{item.allocation_pct:.1%}" if item.allocation_pct is not None else "unknown"
-    return (
-        "<tr>"
-        f"<td>{escape(item.symbol)}</td>"
-        f"<td>{item.quantity:g}</td>"
-        f"<td>{_money(item.latest_price)}</td>"
-        f"<td>{_money(item.market_value)}</td>"
-        f"<td>{allocation}</td>"
-        "</tr>"
-    )
 
 
 def run_gui(host: str = "127.0.0.1", port: int = 8765) -> None:
@@ -198,7 +289,189 @@ def run_gui(host: str = "127.0.0.1", port: int = 8765) -> None:
         server.server_close()
 
 
+def _decision_view_model(decision_text: str, inputs) -> dict[str, object]:
+    lines = decision_text.splitlines()
+    selected = inputs.selected_signal if inputs is not None else {}
+    traded = inputs.traded_symbol if inputs is not None else "TQQQ"
+    blockers = list(inputs.blockers) if inputs is not None else []
+    target = ""
+    if inputs is not None:
+        target = inputs.summary.get("active_target_column") or inputs.summary.get("active_target_mode") or ""
+    return {
+        "action": _line_value(lines, "ACTION") or "NO REPORT",
+        "now": _line_value(lines, "Now") or "Reports are missing; run daily workflow when ready.",
+        "sentence": _line_value(lines, "Decision") or "No local decision report available.",
+        "traded_symbol": traded,
+        "max_exposure": _line_value(lines, f"Max {traded} exposure") or "unknown",
+        "buy_capacity": _line_value(lines, "Buy capacity now") or "unknown",
+        "portfolio_action": _portfolio_action_line(lines),
+        "probability": selected.get("probability", "unknown"),
+        "target": target or "unknown",
+        "blockers": blockers,
+    }
+
+
+def _line_value(lines: list[str], key: str) -> str:
+    prefix = f"{key}:"
+    for line in lines:
+        if line.startswith(prefix):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def _portfolio_action_line(lines: list[str]) -> str:
+    for line in lines:
+        if line.startswith("- Portfolio action:"):
+            return line.split(":", 1)[1].strip().rstrip(".")
+    return "unknown"
+
+
+def _metadata(traded_symbol: str) -> dict[str, str]:
+    report_path = DEFAULT_REPORTS_DIR / SUMMARY_FILE
+    return {
+        "local_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "positions_mtime": _mtime(POSITIONS_PATH),
+        "orders_mtime": _mtime(OPEN_ORDERS_PATH),
+        "account_mtime": _mtime(ACCOUNT_PATH),
+        "market_date": _latest_csv_date(Path("data/raw/market") / f"{traded_symbol}.csv"),
+        "report_date": _report_date(report_path),
+    }
+
+
+def _forms() -> str:
+    return """
+    <form method="post" action="/account">
+      <label>Cash <input name="cash" type="number" step="any"></label>
+      <label>Account value <input name="account_value" type="number" step="any"></label>
+      <button type="submit">Save account</button>
+    </form>
+    <form method="post" action="/position/set">
+      <label>Symbol <input name="symbol" required></label>
+      <label>Quantity <input name="quantity" type="number" step="any" required></label>
+      <button type="submit">Set position</button>
+    </form>
+    <form method="post" action="/position/update">
+      <label>Side <select name="side"><option>buy</option><option>sell</option></select></label>
+      <label>Symbol <input name="symbol" required></label>
+      <label>Quantity <input name="quantity" type="number" step="any" required></label>
+      <label><input name="allow_negative" type="checkbox" value="1"> allow negative</label>
+      <button type="submit">Apply update</button>
+    </form>
+    <form method="post" action="/order/add">
+      <label>Side <select name="side"><option>buy</option><option>sell</option></select></label>
+      <label>Symbol <input name="symbol" required></label>
+      <label>Quantity <input name="quantity" type="number" step="any" required></label>
+      <label>Limit <input name="limit_price" type="number" step="any" required></label>
+      <button type="submit">Add limit order</button>
+    </form>
+    <form method="post" action="/order/clear">
+      <label>Symbol <input name="symbol"></label>
+      <button type="submit">Clear symbol orders</button>
+      <button type="submit" name="all" value="1">Clear all orders</button>
+    </form>
+    """
+
+
+def _position_rows(state) -> str:
+    rows = []
+    updated = {position.symbol: position.updated_at for position in state.positions}
+    for symbol in sorted(state.symbols):
+        item = state.symbols[symbol]
+        rows.append(
+            "<tr>"
+            f"<td>{escape(symbol)}</td>"
+            f"<td>{item.quantity:g}</td>"
+            f"<td>{_money(item.latest_price)}</td>"
+            f"<td>{_money(item.market_value)}</td>"
+            f"<td>{_allocation(item.allocation_pct)}</td>"
+            f"<td>{escape(updated.get(symbol, ''))}</td>"
+            "</tr>"
+        )
+    return "\n".join(rows) or "<tr><td colspan='6'>No local positions or orders.</td></tr>"
+
+
+def _order_rows(state) -> str:
+    rows = []
+    for order in state.open_orders:
+        rows.append(
+            "<tr>"
+            f"<td>{escape(order.symbol)}</td>"
+            f"<td>{escape(order.side)}</td>"
+            f"<td>{escape(order.type)}</td>"
+            f"<td>{order.quantity:g}</td>"
+            f"<td>{_money(order.limit_price)}</td>"
+            f"<td>{_money(order.exposure)}</td>"
+            f"<td>{escape(order.status)}</td>"
+            f"<td>{escape(order.submitted_at)}</td>"
+            "</tr>"
+        )
+    return "\n".join(rows) or "<tr><td colspan='8'>No local open orders.</td></tr>"
+
+
+def _warnings(warnings: tuple[str, ...]) -> str:
+    if not warnings:
+        return '<p class="ok">All held symbols with quantities have known local prices.</p>'
+    items = "".join(f"<li>{escape(warning)}</li>" for warning in warnings)
+    return f'<div class="card warning"><h3>Price warnings</h3><ul>{items}</ul></div>'
+
+
+def _blockers(blockers: list[str]) -> str:
+    if not blockers:
+        return '<p class="ok">No blockers in existing reports.</p>'
+    items = "".join(f"<li>{escape(blocker)}</li>" for blocker in blockers)
+    return f'<div class="card warning"><h3>Blockers</h3><ul>{items}</ul></div>'
+
+
+def _metric(label: str, value: str) -> str:
+    return f'<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>'
+
+
+def _header_metric(label: str, value: str) -> str:
+    return f'<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>'
+
+
+def _date_row(label: str, value: str) -> str:
+    return f"<tr><td>{escape(label)}</td><td>{escape(value)}</td></tr>"
+
+
+def _mtime(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _latest_csv_date(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in reversed(rows):
+        value = row.get("date", "").strip()
+        if value:
+            return value
+    return "unknown"
+
+
+def _report_date(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("Date:"):
+            return line.split(":", 1)[1].strip()
+    return "unknown"
+
+
 def _money(value: float | None) -> str:
     if value is None:
         return "unavailable"
     return f"${value:,.2f}"
+
+
+def _quantity(value: float | int) -> str:
+    return f"{value:g}"
+
+
+def _allocation(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    return f"{value:.1%}"

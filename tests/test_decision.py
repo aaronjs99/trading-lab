@@ -147,6 +147,32 @@ def test_decision_missing_portfolio_files_do_not_break_decide(tmp_path):
     assert "Portfolio state:" not in text
 
 
+def test_decide_reads_saved_account_csv_and_flags_override(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    portfolio_dir.mkdir(parents=True)
+    account_path = portfolio_dir / "account.csv"
+    account_path.write_text(
+        "key,value,updated_at\n"
+        "cash,1624.35,2026-05-04\n"
+        "account_value,5000,2026-05-04\n",
+        encoding="utf-8",
+    )
+
+    saved = render_daily_decision(reports_dir=reports)
+    overridden = render_daily_decision(
+        reports_dir=reports,
+        cash=250,
+        account_value=10000,
+    )
+
+    assert "Account value: $5,000.00" in saved
+    assert "Cash: $1,624.35" in saved
+    assert "In cash: yes, $1,624.35 supplied." in saved
+    assert "Account value: $10,000.00" in overridden
+    assert "Cash: $250.00" in overridden
+
+
 def test_cli_decide_does_not_invoke_workflow_commands(tmp_path, monkeypatch, capsys):
     _write_reports(tmp_path)
     monkeypatch.chdir(tmp_path)
