@@ -79,6 +79,9 @@ def test_gui_render_includes_local_status_and_forms(tmp_path: Path, monkeypatch)
     assert 'data-risk-mode="balanced"' in html
     assert 'data-risk-mode="aggressive"' in html
     assert "risk-pill active" in html
+    assert "min-width: 320px" in html
+    assert "flex-wrap: wrap" in html
+    assert "white-space: nowrap" in html
 
 
 def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, monkeypatch):
@@ -121,7 +124,7 @@ def test_gui_has_live_clock_hourly_refresh_and_scrollable_tables(tmp_path, monke
     assert "60 * 60 * 1000" in html
     assert "Local dashboard refreshes hourly from existing files" in html
     assert "resize: vertical" in html
-    assert "overflow-y: auto" in html
+    assert "overflow: auto" in html
     assert "position: sticky" in html
     assert "tab-panel active" in html
     assert "button.dataset.tab" in html
@@ -174,6 +177,11 @@ def test_gui_combines_open_orders_with_recommendations(tmp_path, monkeypatch):
     assert "Price relation" in html
     assert "Ladder relation" in html
     assert "Projected exposure" in html
+    assert 'class="open-orders-table"' in html
+    assert 'class="col-reason"' in html
+    assert 'class="reason-cell"' in html
+    assert "min-width: 1500px" in html
+    assert "min-width: 420px" in html
     assert "CANCEL" in html or "REDUCE" in html
     assert "action-CANCEL" in html or "action-REDUCE" in html
     assert "action-KEEP" in html

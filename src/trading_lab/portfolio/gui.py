@@ -171,7 +171,7 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
     }}
     .table-scroll {{
       max-height: 360px;
-      overflow-y: auto;
+      overflow: auto;
       resize: vertical;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -195,7 +195,7 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
     .tab-panel.active {{ display: block; }}
     .global-controls {{
       display: grid;
-      grid-template-columns: minmax(260px, 1.4fr) repeat(5, minmax(120px, 1fr));
+      grid-template-columns: minmax(340px, 1.35fr) repeat(5, minmax(120px, 1fr));
       gap: 10px;
       margin-bottom: 14px;
     }}
@@ -204,11 +204,13 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 9px;
+      min-width: 320px;
+      max-width: 420px;
     }}
     .risk-control span {{ display: block; color: var(--muted); font-size: 12px; }}
     .risk-segmented {{
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      display: flex;
+      flex-wrap: wrap;
       gap: 4px;
       margin-top: 6px;
       padding: 3px;
@@ -217,7 +219,8 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
       background: #0f0a17;
     }}
     .risk-pill {{
-      width: 100%;
+      width: auto;
+      flex: 1 1 auto;
       margin: 0;
       padding: 7px 10px;
       border-radius: 999px;
@@ -225,8 +228,34 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
       background: transparent;
       color: var(--muted);
       font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
     }}
     .risk-pill.active {{ background: #6f42c1; color: var(--text); }}
+    .open-orders-table {{
+      min-width: 1500px;
+      table-layout: fixed;
+    }}
+    .open-orders-table th,
+    .open-orders-table td {{
+      vertical-align: top;
+    }}
+    .open-orders-table .col-recommendation {{ width: 120px; }}
+    .open-orders-table .col-symbol {{ width: 80px; }}
+    .open-orders-table .col-side {{ width: 72px; }}
+    .open-orders-table .col-type {{ width: 72px; }}
+    .open-orders-table .col-quantity {{ width: 86px; }}
+    .open-orders-table .col-money {{ width: 105px; }}
+    .open-orders-table .col-status {{ width: 90px; }}
+    .open-orders-table .col-submitted {{ width: 112px; }}
+    .open-orders-table .col-relation {{ width: 150px; }}
+    .open-orders-table .col-projected {{ width: 132px; }}
+    .open-orders-table .col-reason {{ width: 420px; }}
+    .open-orders-table .reason-cell {{
+      min-width: 420px;
+      white-space: normal;
+      line-height: 1.35;
+    }}
     .action-CANCEL, .action-REDUCE {{ color: var(--danger); font-weight: 700; }}
     .action-KEEP {{ color: var(--ok); font-weight: 700; }}
     .action-REVIEW, .action-MOVE_LOWER {{ color: #e5c07b; font-weight: 700; }}
@@ -255,6 +284,7 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
     @media (max-width: 860px) {{
       .topbar {{ align-items: start; flex-direction: column; }}
       .global-controls, .grid, .metric-grid, form {{ grid-template-columns: 1fr; }}
+      .risk-control {{ max-width: none; width: 100%; }}
       .span-2, .span-5 {{ grid-column: auto; }}
     }}
   </style>
@@ -365,7 +395,22 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
     <section class="card">
       <h2>Open orders</h2>
       <div class="table-scroll">
-        <table>
+        <table class="open-orders-table">
+          <colgroup>
+            <col class="col-recommendation">
+            <col class="col-symbol">
+            <col class="col-side">
+            <col class="col-type">
+            <col class="col-quantity">
+            <col class="col-money">
+            <col class="col-money">
+            <col class="col-status">
+            <col class="col-submitted">
+            <col class="col-relation">
+            <col class="col-relation">
+            <col class="col-projected">
+            <col class="col-reason">
+          </colgroup>
           <tr><th>Recommendation</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit</th><th>Notional</th><th>Status</th><th>Submitted</th><th>Price relation</th><th>Ladder relation</th><th>Projected exposure</th><th>Reason</th></tr>
           {_combined_order_rows(state, order_reviews)}
         </table>
@@ -748,7 +793,7 @@ def _combined_order_rows(state, reviews) -> str:
             f"<td>{escape(review.price_relation)}</td>"
             f"<td>{escape(review.ladder_relation)}</td>"
             f"<td>{_money(review.projected_exposure)}</td>"
-            f"<td>{escape(review.reason)}</td>"
+            f"<td class=\"reason-cell\">{escape(review.reason)}</td>"
             "</tr>"
         )
     return "\n".join(rows) or "<tr><td colspan='13'>No local open orders.</td></tr>"
