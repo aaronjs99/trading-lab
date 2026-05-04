@@ -7,11 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from trading_lab.config.profiles import PROFILE_ENV
+from trading_lab.portfolio.state import (
+    OPEN_ORDERS_PATH,
+    POSITIONS_PATH,
+    PortfolioState,
+    build_portfolio_state,
+    portfolio_files_exist,
+)
 
 
 MISSING_REPORTS_MESSAGE = "Missing reports. Run ./scripts/tl_full_daily.sh first."
 DEFAULT_REPORTS_DIR = Path("data/reports")
 DEFAULT_MANUAL_DIR = Path("data/manual")
+DEFAULT_MARKET_DIR = Path("data/raw/market")
 SUMMARY_FILE = "daily_decision_summary.txt"
 SELECTED_SIGNAL_FILE = "selected_model_latest_signal.csv"
 
@@ -34,6 +42,7 @@ class DecisionInputs:
     blockers: tuple[str, ...]
     ladder: tuple[str, ...]
     selected_signal: dict[str, str]
+    portfolio_state: PortfolioState | None = None
 
 
 def parse_position(value: str) -> Position:
@@ -51,6 +60,9 @@ def render_daily_decision(
     account_value: float | None = None,
     cash: float | None = None,
     positions: list[str] | tuple[str, ...] | None = None,
+    positions_path: Path = POSITIONS_PATH,
+    open_orders_path: Path = OPEN_ORDERS_PATH,
+    market_dir: Path = DEFAULT_MARKET_DIR,
 ) -> str:
     """Render a fast read-only daily decision from existing report files."""
 
@@ -61,6 +73,9 @@ def render_daily_decision(
         account_value=account_value,
         cash=cash,
         positions=positions,
+        positions_path=positions_path,
+        open_orders_path=open_orders_path,
+        market_dir=market_dir,
     )
     if inputs is None:
         return MISSING_REPORTS_MESSAGE
@@ -75,14 +90,23 @@ def load_decision_inputs(
     account_value: float | None = None,
     cash: float | None = None,
     positions: list[str] | tuple[str, ...] | None = None,
+    positions_path: Path = POSITIONS_PATH,
+    open_orders_path: Path = OPEN_ORDERS_PATH,
+    market_dir: Path = DEFAULT_MARKET_DIR,
 ) -> DecisionInputs | None:
     _ = manual_dir
     summary_path = reports_dir / SUMMARY_FILE
     if not summary_path.exists():
         return None
 
+    positions_path, open_orders_path, market_dir = _resolve_local_state_paths(
+        reports_dir=reports_dir,
+        positions_path=positions_path,
+        open_orders_path=open_orders_path,
+        market_dir=market_dir,
+    )
+
     summary_text = summary_path.read_text(encoding="utf-8")
-    parsed_positions = tuple(parse_position(value) for value in positions or ())
     summary, reasons, blockers, ladder = _parse_summary(summary_text)
     selected_signal = _read_latest_csv_row(reports_dir / SELECTED_SIGNAL_FILE)
     active_profile = profile or os.environ.get(PROFILE_ENV) or summary.get("profile") or "default"
@@ -95,10 +119,29 @@ def load_decision_inputs(
     if traded_allocation is not None:
         summary["max_traded_allocation"] = traded_allocation
 
+    resolved_account_value = float(account_value if account_value is not None else 5000.0)
+    local_portfolio = None
+    if portfolio_files_exist(positions_path, open_orders_path):
+        local_portfolio = build_portfolio_state(
+            positions_path=positions_path,
+            open_orders_path=open_orders_path,
+            market_dir=market_dir,
+            account_value=resolved_account_value,
+            cash=cash,
+        )
+
+    if local_portfolio is not None:
+        parsed_positions = tuple(
+            Position(symbol=position.symbol, quantity=position.quantity)
+            for position in local_portfolio.positions
+        )
+    else:
+        parsed_positions = tuple(parse_position(value) for value in positions or ())
+
     return DecisionInputs(
         profile=active_profile,
         traded_symbol=traded,
-        account_value=float(account_value if account_value is not None else 5000.0),
+        account_value=resolved_account_value,
         cash=cash,
         positions=parsed_positions,
         summary=summary,
@@ -106,7 +149,35 @@ def load_decision_inputs(
         blockers=tuple(blockers),
         ladder=tuple(ladder),
         selected_signal=selected_signal,
+        portfolio_state=local_portfolio,
     )
+
+
+def _resolve_local_state_paths(
+    *,
+    reports_dir: Path,
+    positions_path: Path,
+    open_orders_path: Path,
+    market_dir: Path,
+) -> tuple[Path, Path, Path]:
+    if reports_dir == DEFAULT_REPORTS_DIR:
+        return positions_path, open_orders_path, market_dir
+
+    data_dir = reports_dir.parent
+    resolved_positions = (
+        data_dir / "raw" / "portfolio" / "positions.csv"
+        if positions_path == POSITIONS_PATH
+        else positions_path
+    )
+    resolved_open_orders = (
+        data_dir / "raw" / "portfolio" / "open_orders.csv"
+        if open_orders_path == OPEN_ORDERS_PATH
+        else open_orders_path
+    )
+    resolved_market_dir = (
+        data_dir / "raw" / "market" if market_dir == DEFAULT_MARKET_DIR else market_dir
+    )
+    return resolved_positions, resolved_open_orders, resolved_market_dir
 
 
 def format_decision(inputs: DecisionInputs) -> str:
@@ -156,6 +227,8 @@ def format_decision(inputs: DecisionInputs) -> str:
 
     lines.append(f"Already holding: {_holding_sentence(traded, held_qty, position_value)}")
     lines.append(f"In cash: {_cash_sentence(inputs.cash)}")
+    if inputs.portfolio_state is not None:
+        lines.extend(["", *_portfolio_decision_lines(inputs, max_allocation)])
 
     lines.extend(["", "Ladder prices:"])
     if inputs.ladder:
@@ -178,6 +251,82 @@ def format_decision(inputs: DecisionInputs) -> str:
         lines.append("- None in existing reports.")
 
     return "\n".join(lines)
+
+
+def _portfolio_decision_lines(inputs: DecisionInputs, max_allocation: float | None) -> list[str]:
+    traded = inputs.traded_symbol.upper()
+    state = inputs.portfolio_state
+    if state is None:
+        return []
+    item = state.symbols.get(traded)
+    lines = ["Portfolio state:"]
+    if item is None:
+        lines.append(f"- Current {traded} position: 0 shares.")
+        lines.append("- Pending buy orders: none.")
+        lines.append("- Pending sell orders: none.")
+        lines.append("- Portfolio action: do not add orders.")
+        return lines
+
+    current_value = item.market_value or 0.0
+    allocation = item.allocation_pct
+    worst_value = current_value + item.pending_buy_value
+    worst_allocation = worst_value / inputs.account_value if inputs.account_value > 0 else None
+    max_dollars = inputs.account_value * max_allocation if max_allocation is not None else None
+    exceeds = max_dollars is not None and worst_value > max_dollars
+
+    lines.append(f"- Current {traded} position: {item.quantity:g} shares.")
+    if item.market_value is not None:
+        allocation_text = f" ({allocation:.1%})" if allocation is not None else ""
+        lines.append(
+            f"- Current {traded} market value: ${item.market_value:,.2f}{allocation_text}."
+        )
+    else:
+        lines.append(f"- Current {traded} market value: unavailable.")
+    lines.append(
+        f"- Pending buy orders: {item.pending_buy_quantity:g} shares, "
+        f"${item.pending_buy_value:,.2f}."
+    )
+    lines.append(
+        f"- Pending sell orders: {item.pending_sell_quantity:g} shares, "
+        f"${item.pending_sell_value:,.2f}."
+    )
+    worst_text = f" ({worst_allocation:.1%})" if worst_allocation is not None else ""
+    lines.append(f"- Worst-case if all buys fill: ${worst_value:,.2f}{worst_text}.")
+    if max_dollars is not None:
+        lines.append(
+            f"- Pending orders exceed max recommended allocation: {'YES' if exceeds else 'NO'}."
+        )
+    else:
+        lines.append("- Pending orders exceed max recommended allocation: unknown.")
+    lines.append(f"- Portfolio action: {_portfolio_action(inputs, item, exceeds)}.")
+    for warning in state.warnings:
+        lines.append(f"- Warning: {warning}")
+    return lines
+
+
+def _portfolio_action(
+    inputs: DecisionInputs,
+    item,
+    exceeds: bool,
+) -> str:
+    traded = inputs.traded_symbol.upper()
+    raw_action = inputs.summary.get("suggested_action", "NO_TRADE")
+    if exceeds:
+        return "cancel/reduce orders"
+    buy_allowed_actions = {
+        "WAIT_FOR_PULLBACK",
+        "TACTICAL_TQQQ_BUY_ALLOWED",
+        "SMALL_TQQQ_ALLOWED",
+    }
+    if item.pending_buy_value > 0 and raw_action in buy_allowed_actions:
+        return "keep orders"
+    if item.pending_buy_value > 0:
+        return "do not add orders"
+    if item.quantity > 0 and raw_action == "DEFENSIVE_OR_CASH":
+        return f"hold/trim existing {traded} position"
+    if item.quantity > 0:
+        return f"hold/trim existing {traded} position"
+    return "do not add orders"
 
 
 def _parse_summary(text: str) -> tuple[dict[str, str], list[str], list[str], list[str]]:

@@ -26,6 +26,24 @@ def main() -> None:
     decide.add_argument("--position", action="append", default=[])
     decide.add_argument("--cash", type=float)
 
+    portfolio = sub.add_parser("portfolio")
+    portfolio_sub = portfolio.add_subparsers(dest="portfolio_command")
+    portfolio_status = portfolio_sub.add_parser("status")
+    portfolio_status.add_argument("--account-value", type=float)
+    portfolio_status.add_argument("--cash", type=float)
+    portfolio_sub.add_parser("positions")
+    portfolio_sub.add_parser("orders")
+    portfolio_set = portfolio_sub.add_parser("set")
+    portfolio_set.add_argument("symbol")
+    portfolio_set.add_argument("quantity", type=float)
+    portfolio_order = portfolio_sub.add_parser("order")
+    portfolio_order_sub = portfolio_order.add_subparsers(dest="portfolio_order_command")
+    portfolio_order_add = portfolio_order_sub.add_parser("add")
+    portfolio_order_add.add_argument("side", choices=["buy", "sell"])
+    portfolio_order_add.add_argument("symbol")
+    portfolio_order_add.add_argument("quantity", type=float)
+    portfolio_order_add.add_argument("limit_price", type=float)
+
     args, rest = parser.parse_known_args()
     command = args.command or "status"
 
@@ -54,11 +72,21 @@ def main() -> None:
         )
         return
 
+    if command == "portfolio":
+        _portfolio_command(args)
+        return
+
     if command == "plots":
-        raise SystemExit(_run([sys.executable, "scripts/plot_dashboard.py"]) or _run([sys.executable, "-m", "trading_lab.plots.open_plots"]))
+        raise SystemExit(
+            _run([sys.executable, "scripts/plot_dashboard.py"])
+            or _run([sys.executable, "-m", "trading_lab.plots.open_plots"])
+        )
 
     if command == "orders":
-        raise SystemExit(_run([sys.executable, "scripts/parse_open_orders.py"]) or _run([sys.executable, "scripts/reconcile_orders.py"]))
+        raise SystemExit(
+            _run([sys.executable, "scripts/parse_open_orders.py"])
+            or _run([sys.executable, "scripts/reconcile_orders.py"])
+        )
 
     if command == "demo":
         from trading_lab.workflows.demo import run_demo
@@ -73,6 +101,72 @@ def main() -> None:
         raise SystemExit(_run([sys.executable, "-m", "trading_lab.devtools.audit"]))
 
     raise SystemExit(f"Unknown command: {command}")
+
+
+def _portfolio_command(args: argparse.Namespace) -> None:
+    from trading_lab.portfolio.state import (
+        OPEN_ORDERS_PATH,
+        POSITIONS_PATH,
+        append_open_order,
+        build_portfolio_state,
+        read_open_orders,
+        read_positions,
+        summarize_portfolio_state,
+        write_position,
+    )
+
+    command = args.portfolio_command or "status"
+    if command == "status":
+        print(
+            summarize_portfolio_state(
+                build_portfolio_state(account_value=args.account_value, cash=args.cash)
+            )
+        )
+        return
+    if command == "positions":
+        positions = read_positions()
+        if not positions:
+            print(f"No local positions found at {POSITIONS_PATH}.")
+            return
+        for position in positions:
+            print(
+                f"{position.symbol},{position.quantity:g},{position.notes},{position.updated_at}"
+            )
+        return
+    if command == "orders":
+        orders = read_open_orders()
+        if not orders:
+            print(f"No local open orders found at {OPEN_ORDERS_PATH}.")
+            return
+        for order in orders:
+            print(
+                f"{order.symbol},{order.side},{order.type},{order.quantity:g},"
+                f"{order.limit_price:.2f},{order.time_in_force},{order.status},"
+                f"{order.submitted_at},{order.notes}"
+            )
+        return
+    if command == "set":
+        write_position(POSITIONS_PATH, args.symbol, args.quantity)
+        print(f"Updated local position for {args.symbol.upper()} in {POSITIONS_PATH}.")
+        return
+    if command == "order":
+        if args.portfolio_order_command != "add":
+            raise SystemExit(
+                "Usage: tl portfolio order add {buy,sell} SYMBOL QUANTITY LIMIT_PRICE"
+            )
+        append_open_order(
+            OPEN_ORDERS_PATH,
+            side=args.side,
+            symbol=args.symbol,
+            quantity=args.quantity,
+            limit_price=args.limit_price,
+        )
+        print(
+            f"Added local {args.side} limit order for "
+            f"{args.symbol.upper()} in {OPEN_ORDERS_PATH}."
+        )
+        return
+    raise SystemExit(f"Unknown portfolio command: {command}")
 
 
 if __name__ == "__main__":

@@ -97,6 +97,56 @@ def test_decision_accounts_for_existing_position(tmp_path):
     assert "Already holding: yes, 2 shares of TQQQ, about $120.00." in text
 
 
+def test_decision_warns_when_local_portfolio_pending_exceeds_max_allocation(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    market_dir = tmp_path / "data" / "raw" / "market"
+    portfolio_dir.mkdir(parents=True)
+    market_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\nTQQQ,4,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n"
+        "TQQQ,buy,limit,10,58.00,GTC,placed,2026-04-29,current_open_order\n"
+        "TQQQ,sell,limit,4,68.50,GTC,placed,2026-04-29,current_open_order\n",
+        encoding="utf-8",
+    )
+    (market_dir / "TQQQ.csv").write_text("date,close\n2026-05-04,60.00\n", encoding="utf-8")
+
+    text = render_daily_decision(
+        reports_dir=reports,
+        positions_path=portfolio_dir / "positions.csv",
+        open_orders_path=portfolio_dir / "open_orders.csv",
+        market_dir=market_dir,
+        account_value=5000,
+    )
+
+    assert "Current TQQQ position: 4 shares." in text
+    assert "Current TQQQ market value: $240.00 (4.8%)." in text
+    assert "Pending buy orders: 10 shares, $580.00." in text
+    assert "Pending sell orders: 4 shares, $274.00." in text
+    assert "Worst-case if all buys fill: $820.00 (16.4%)." in text
+    assert "Pending orders exceed max recommended allocation: YES." in text
+    assert "Portfolio action: cancel/reduce orders." in text
+
+
+def test_decision_missing_portfolio_files_do_not_break_decide(tmp_path):
+    reports = _write_reports(tmp_path)
+
+    text = render_daily_decision(
+        reports_dir=reports,
+        positions_path=tmp_path / "missing_positions.csv",
+        open_orders_path=tmp_path / "missing_orders.csv",
+        market_dir=tmp_path / "missing_market",
+        account_value=5000,
+    )
+
+    assert text.startswith("ACTION: WAIT")
+    assert "Portfolio state:" not in text
+
+
 def test_cli_decide_does_not_invoke_workflow_commands(tmp_path, monkeypatch, capsys):
     _write_reports(tmp_path)
     monkeypatch.chdir(tmp_path)
