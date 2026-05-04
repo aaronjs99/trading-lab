@@ -95,6 +95,7 @@ def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, 
     assert "positions.csv modified" in html
     assert "open_orders.csv modified" in html
     assert "account.csv modified" in html
+    assert "Report updated" in html
     assert "Market CSV date" in html
     assert "2026-05-04" in html
     assert "$1,624.35" in html
@@ -166,7 +167,23 @@ def test_gui_combines_open_orders_with_recommendations(tmp_path, monkeypatch):
     assert "action-KEEP" in html
     assert "Sell order reduces" in html
     assert "No model signal" in html
+    assert "Suggested order ideas" in html
+    assert "No new buy orders. Cancel/reduce existing buys first." in html
+    assert "Keep/review the TQQQ sell 4 @ $68.50" in html
     assert "Open-order recommendations" not in html
+
+
+def test_gui_advice_before_model_probability_and_spacing_css(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page()
+
+    assert "Advice and Interpretation" in html
+    assert html.index("Advice and Interpretation") < html.index("Model probability")
+    assert "current TQQQ exposure ($240.00)" in html or "Pending buy orders" in html
+    assert "order-actions-card" in html
+    assert "margin-top: 14px" in html
 
 
 def test_gui_edit_tab_contains_local_csv_warning_and_forms(tmp_path, monkeypatch):

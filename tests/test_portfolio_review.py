@@ -64,5 +64,7 @@ def test_order_review_marks_over_capacity_buys_cancel_or_reduce_and_sell_not_agg
     sell = [row for row in reviews if row.side == "sell"][0]
 
     assert buy.recommended_action in {"CANCEL", "REDUCE"}
+    assert "order notional $580.00 exceeds remaining buy capacity $10.00" in buy.reason
+    assert "projected exposure would be $820.00" in buy.reason
     assert sell.recommended_action in {"KEEP", "REVIEW"}
     assert sell.recommended_action not in {"CANCEL", "REDUCE", "MOVE_LOWER"}

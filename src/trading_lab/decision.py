@@ -16,8 +16,11 @@ from trading_lab.portfolio.state import (
     portfolio_files_exist,
 )
 from trading_lab.portfolio.review import (
+    advice_lines,
+    exposure_context,
     review_holdings,
     review_open_orders,
+    suggested_order_ideas,
     summarize_order_reviews,
 )
 
@@ -257,6 +260,7 @@ def format_decision(inputs: DecisionInputs) -> str:
     lines.append(f"In cash: {_cash_sentence(inputs.cash)}")
     if inputs.portfolio_state is not None:
         lines.extend(["", *_portfolio_decision_lines(inputs, max_allocation)])
+        lines.extend(["", *_advice_lines(inputs, action, max_allocation)])
         lines.extend(["", *_portfolio_holdings_review_lines(inputs)])
         lines.extend(["", *_open_order_review_lines(inputs, max_allocation)])
 
@@ -420,6 +424,44 @@ def _open_order_review_lines(
             f"{row.price_relation}, ladder {row.ladder_relation}, "
             f"projected exposure {projected}): {row.reason}"
         )
+    return lines
+
+
+def _advice_lines(
+    inputs: DecisionInputs,
+    action: str,
+    max_allocation: float | None,
+) -> list[str]:
+    state = inputs.portfolio_state
+    if state is None:
+        return []
+    reviews = review_open_orders(
+        state,
+        inputs.traded_symbol,
+        account_value=inputs.account_value,
+        max_allocation=max_allocation,
+        suggested_action=inputs.summary.get("suggested_action", "NO_TRADE"),
+        strategy_eligible=inputs.summary.get("strategy_eligible", "").upper() == "YES",
+        ladder=inputs.ladder,
+    )
+    summary = summarize_order_reviews(reviews)
+    context = exposure_context(state, inputs.traded_symbol, inputs.account_value, max_allocation)
+    lines = ["Advice and Interpretation:"]
+    lines.extend(f"- {line}" for line in advice_lines(
+        state,
+        inputs.traded_symbol,
+        action=action,
+        max_exposure=context.max_exposure,
+        order_summary=summary,
+    ))
+    lines.extend(["", "Suggested order ideas:"])
+    lines.extend(f"- {line}" for line in suggested_order_ideas(
+        state,
+        inputs.traded_symbol,
+        context=context,
+        reviews=reviews,
+        ladder=inputs.ladder,
+    ))
     return lines
 
 

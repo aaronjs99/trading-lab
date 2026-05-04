@@ -39,6 +39,14 @@ class OrderReviewSummary:
     top_actions: tuple[OrderReview, ...]
 
 
+@dataclass(frozen=True)
+class ExposureContext:
+    traded_symbol: str
+    current_exposure: float | None
+    max_exposure: float | None
+    buy_capacity: float | None
+
+
 def review_holdings(
     state: PortfolioState,
     traded_symbol: str,
@@ -122,10 +130,14 @@ def review_open_orders(
         ladder_relation = _ladder_relation(order, first_ladder)
         if remaining_buy_capacity is not None and remaining_buy_capacity <= 0:
             action = "CANCEL"
-            reason = "Buy capacity is $0 under the max recommended exposure."
+            reason = _zero_capacity_buy_reason(order, traded, current_value, max_exposure)
         elif remaining_buy_capacity is not None and order.exposure > remaining_buy_capacity:
             action = "REDUCE"
-            reason = "Order notional exceeds remaining buy capacity."
+            reason = (
+                f"Reduce this buy: order notional {_money(order.exposure)} exceeds remaining "
+                f"buy capacity {_money(remaining_buy_capacity)}; projected exposure would be "
+                f"{_money(current_value + order.exposure)}."
+            )
             remaining_buy_capacity = 0.0
         elif first_ladder is not None and order.limit_price > first_ladder * 1.01:
             action = "MOVE_LOWER"
@@ -160,6 +172,112 @@ def summarize_order_reviews(reviews: tuple[OrderReview, ...]) -> OrderReviewSumm
     )
 
 
+def exposure_context(
+    state: PortfolioState,
+    traded_symbol: str,
+    account_value: float,
+    max_allocation: float | None,
+) -> ExposureContext:
+    traded = traded_symbol.upper()
+    item = state.symbols.get(traded)
+    current = item.market_value if item is not None else None
+    max_exposure = account_value * max_allocation if max_allocation is not None else None
+    capacity = (
+        max(max_exposure - (current or 0.0), 0.0)
+        if max_exposure is not None and current is not None
+        else None
+    )
+    return ExposureContext(traded, current, max_exposure, capacity)
+
+
+def advice_lines(
+    state: PortfolioState,
+    traded_symbol: str,
+    *,
+    action: str,
+    max_exposure: float | None,
+    order_summary: OrderReviewSummary,
+) -> tuple[str, ...]:
+    traded = traded_symbol.upper()
+    item = state.symbols.get(traded)
+    current = item.market_value if item is not None else None
+    lines = [f"Hold current {traded}." if action == "HOLD" else f"Current action is {action}."]
+    lines.append(f"Do not add new {traded} buys now.")
+    if current is not None and max_exposure is not None and current > max_exposure:
+        lines.append(
+            f"Current {traded} exposure ({_money(current)}) is already slightly above "
+            f"the model max ({_money(max_exposure)})."
+        )
+    if order_summary.total_pending_buy_notional > 0:
+        lines.append(
+            f"Pending buy orders ({_money(order_summary.total_pending_buy_notional)}) "
+            "are much too large relative to the current model recommendation."
+        )
+    sell_orders = [
+        order
+        for order in state.open_orders
+        if order.symbol == traded and order.side == "sell" and order.status == "placed"
+    ]
+    if sell_orders:
+        first = sell_orders[0]
+        lines.append(
+            f"Sell order at {first.limit_price:g} reduces exposure and can be kept/reviewed."
+        )
+    lines.append(
+        "Non-traded holdings are tiny portfolio dust/status, not model-backed trade signals."
+    )
+    return tuple(lines)
+
+
+def suggested_order_ideas(
+    state: PortfolioState,
+    traded_symbol: str,
+    *,
+    context: ExposureContext,
+    reviews: tuple[OrderReview, ...],
+    ladder: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    traded = traded_symbol.upper()
+    ideas: list[str] = []
+    if context.buy_capacity is not None and context.buy_capacity <= 0:
+        ideas.append("No new buy orders. Cancel/reduce existing buys first.")
+    elif context.buy_capacity is not None:
+        first_ladder = _first_ladder_price(ladder)
+        if first_ladder is not None and first_ladder > 0:
+            size = int(context.buy_capacity // first_ladder)
+            if size <= 0:
+                ideas.append("No new buy orders. Cancel/reduce existing buys first.")
+            else:
+                ideas.append(
+                    f"Possible {traded} buy idea: up to {size:g} share(s) near "
+                    f"{_money(first_ladder)} from the ladder."
+                )
+        else:
+            ideas.append(f"Possible {traded} buy idea: keep notional under {_money(context.buy_capacity)}.")
+    else:
+        ideas.append("No new buy idea because buy capacity is unknown.")
+    if any(row.side == "buy" and row.recommended_action in {"CANCEL", "REDUCE"} for row in reviews):
+        ideas.append(f"Cancel/reduce current pending {traded} buys.")
+    for row in reviews:
+        if row.symbol == traded and row.side == "sell" and row.recommended_action in {"KEEP", "REVIEW"}:
+            ideas.append(
+                f"Keep/review the {traded} sell {row.quantity:g} @ {_money(row.limit_price)} "
+                "because it reduces exposure."
+            )
+            break
+    if (
+        context.current_exposure is not None
+        and context.max_exposure is not None
+        and context.current_exposure > context.max_exposure
+    ):
+        excess = context.current_exposure - context.max_exposure
+        ideas.append(
+            f"Over max by about {_money(excess)}; too small to justify a market sell by itself, "
+            "so focus on canceling pending buys."
+        )
+    return tuple(ideas)
+
+
 def _review_other_symbol_order(
     order: OpenOrder,
     state: PortfolioState,
@@ -184,6 +302,25 @@ def _review_traded_sell(
     if max_exposure is not None and current_value > max_exposure:
         return _order_review(order, state, "KEEP", "Sell order reduces overexposure.")
     return _order_review(order, state, "REVIEW", "Sell order reduces exposure; review manually.")
+
+
+def _zero_capacity_buy_reason(
+    order: OpenOrder,
+    traded: str,
+    current_value: float,
+    max_exposure: float | None,
+) -> str:
+    projected = current_value + order.exposure
+    if max_exposure is None:
+        return (
+            f"Cancel this buy: buy capacity is $0, order notional is {_money(order.exposure)}, "
+            f"and projected exposure after fill would be {_money(projected)}."
+        )
+    return (
+        f"Cancel this buy: current {traded} exposure is already {_money(current_value)} "
+        f"vs max {_money(max_exposure)}, order notional is {_money(order.exposure)}, "
+        f"and filling this order would raise exposure to {_money(projected)}."
+    )
 
 
 def _order_review(
@@ -242,3 +379,9 @@ def _first_ladder_price(ladder: tuple[str, ...]) -> float | None:
         if match:
             return float(match.group(1).replace(",", ""))
     return None
+
+
+def _money(value: float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return f"${value:,.2f}"

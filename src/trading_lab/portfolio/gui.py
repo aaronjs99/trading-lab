@@ -26,8 +26,11 @@ from trading_lab.portfolio.state import (
     write_position,
 )
 from trading_lab.portfolio.review import (
+    advice_lines,
+    exposure_context,
     review_holdings,
     review_open_orders,
+    suggested_order_ideas,
     summarize_order_reviews,
 )
 
@@ -57,6 +60,38 @@ def render_status_page() -> str:
         else ()
     )
     order_summary = summarize_order_reviews(order_reviews)
+    context = (
+        exposure_context(
+            state,
+            decision_inputs.traded_symbol,
+            decision_inputs.account_value,
+            max_allocation,
+        )
+        if decision_inputs is not None
+        else None
+    )
+    advice = (
+        advice_lines(
+            state,
+            decision_inputs.traded_symbol,
+            action=decision["action"],
+            max_exposure=context.max_exposure if context is not None else None,
+            order_summary=order_summary,
+        )
+        if decision_inputs is not None
+        else ()
+    )
+    ideas = (
+        suggested_order_ideas(
+            state,
+            decision_inputs.traded_symbol,
+            context=context,
+            reviews=order_reviews,
+            ladder=decision_inputs.ladder,
+        )
+        if decision_inputs is not None and context is not None
+        else ()
+    )
 
     return f"""<!doctype html>
 <html>
@@ -112,6 +147,9 @@ def render_status_page() -> str:
     .metric strong {{ display: block; margin-top: 2px; font-size: 15px; }}
     .action {{ font-size: 34px; color: var(--accent); letter-spacing: 0; line-height: 1; }}
     .tight p {{ margin: 8px 0; }}
+    .order-actions-card {{ margin-top: 14px; }}
+    .compact-list {{ margin: 8px 0 0; padding-left: 20px; }}
+    .compact-list li {{ margin: 4px 0; }}
     .danger {{ color: var(--danger); }}
     .ok {{ color: var(--ok); }}
     .review {{ color: #e5c07b; }}
@@ -195,7 +233,7 @@ def render_status_page() -> str:
     <header>
       {_header_metric("Local time", metadata["local_time"], value_id="local-clock")}
       {_header_metric("Last local refresh", metadata["local_time"], value_id="last-refresh")}
-      {_header_metric("Report date", metadata["report_date"])}
+      {_header_metric("Report updated", metadata["report_updated"])}
       {_header_metric("Account value", _money(state.account_value))}
       {_header_metric("Cash", _money(state.cash))}
     </header>
@@ -220,6 +258,7 @@ def render_status_page() -> str:
         {_metric("Flagged orders", str(order_summary.cancel_reduce_review_count))}
       </div>
       {_top_order_actions(order_summary.top_actions)}
+      {_advice_card(advice)}
       <p class="muted">Model probability: {escape(decision["probability"])} | Active target: {escape(decision["target"])}</p>
       {_blockers(decision["blockers"])}
     </section>
@@ -247,7 +286,7 @@ def render_status_page() -> str:
             {_date_row("open_orders.csv modified", metadata["orders_mtime"])}
             {_date_row("account.csv modified", metadata["account_mtime"])}
             {_date_row("Market CSV date", metadata["market_date"])}
-            {_date_row("Daily report date", metadata["report_date"])}
+            {_date_row("Daily report date", metadata["report_updated"])}
           </table>
         </div>
         <p class="muted">If prices are stale or missing, run market update or tlfull.</p>
@@ -265,6 +304,7 @@ def render_status_page() -> str:
           {_position_review_rows(state, holding_reviews, decision["traded_symbol"])}
         </table>
       </div>
+      {_ideas_card(ideas)}
     </section>
   </section>
 
@@ -442,6 +482,7 @@ def _metadata(traded_symbol: str) -> dict[str, str]:
         "account_mtime": _mtime(ACCOUNT_PATH),
         "market_date": _latest_csv_date(Path("data/raw/market") / f"{traded_symbol}.csv"),
         "report_date": _report_date(report_path),
+        "report_updated": _report_updated(report_path),
     }
 
 
@@ -615,7 +656,31 @@ def _top_order_actions(rows) -> str:
         f"{row.quantity:g} @ {_money(row.limit_price)}: {escape(row.reason)}</li>"
         for row in rows
     )
-    return f'<div class="card warning"><h3>Top order actions</h3><ul>{items}</ul></div>'
+    return (
+        '<div class="card warning order-actions-card"><h3>Top order actions</h3>'
+        f'<ul class="compact-list">{items}</ul></div>'
+    )
+
+
+def _advice_card(lines) -> str:
+    if not lines:
+        return ""
+    items = "".join(f"<li>{escape(line)}</li>" for line in lines)
+    return (
+        '<div class="card order-actions-card"><h3>Advice and Interpretation</h3>'
+        f'<ul class="compact-list">{items}</ul></div>'
+    )
+
+
+def _ideas_card(lines) -> str:
+    if not lines:
+        return ""
+    items = "".join(f"<li>{escape(line)}</li>" for line in lines)
+    return (
+        '<div class="card order-actions-card"><h3>Suggested order ideas</h3>'
+        '<p class="muted">Local advice only. These are not broker actions.</p>'
+        f'<ul class="compact-list">{items}</ul></div>'
+    )
 
 
 def _warnings(warnings: tuple[str, ...]) -> str:
@@ -670,6 +735,12 @@ def _report_date(path: Path) -> str:
         if line.startswith("Date:"):
             return line.split(":", 1)[1].strip()
     return "unknown"
+
+
+def _report_updated(path: Path) -> str:
+    if path.exists():
+        return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    return _report_date(path)
 
 
 def _percent(value: str | None) -> float | None:

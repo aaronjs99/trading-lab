@@ -130,6 +130,11 @@ def test_decision_warns_when_local_portfolio_pending_exceeds_max_allocation(tmp_
     assert "Worst-case if all buys fill: $820.00 (16.4%)." in text
     assert "Pending orders exceed max recommended allocation: YES." in text
     assert "Portfolio action: cancel/reduce orders." in text
+    assert "Advice and Interpretation:" in text
+    assert text.index("Advice and Interpretation:") < text.index("Open-order review:")
+    assert "Do not add new TQQQ buys now." in text
+    assert "Suggested order ideas:" in text
+    assert "No new buy orders. Cancel/reduce existing buys first." in text
     assert "Portfolio holdings review:" in text
     assert "Open-order review:" in text
     assert "CANCEL TQQQ buy" in text or "REDUCE TQQQ buy" in text
