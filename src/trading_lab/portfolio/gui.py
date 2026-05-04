@@ -36,8 +36,9 @@ from trading_lab.portfolio.review import (
 )
 
 
-def render_status_page(risk_mode: str = "conservative") -> str:
+def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily") -> str:
     risk_mode = normalize_risk_mode(risk_mode)
+    active_tab = _normalize_tab(active_tab)
     state = build_portfolio_state()
     decision_inputs = load_decision_inputs(risk_mode=risk_mode)
     decision_text = format_decision(decision_inputs) if decision_inputs is not None else ""
@@ -125,12 +126,12 @@ def render_status_page(risk_mode: str = "conservative") -> str:
       line-height: 1.4;
     }}
     main {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
-    header {{
-      display: grid;
-      grid-template-columns: 1fr repeat(5, minmax(120px, auto));
-      gap: 12px;
+    .topbar {{
+      display: flex;
       align-items: end;
-      margin-bottom: 18px;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
     }}
     h1, h2, h3 {{ margin: 0; }}
     h1 {{ font-size: 28px; }}
@@ -181,7 +182,7 @@ def render_status_page(risk_mode: str = "conservative") -> str:
       min-height: 118px;
     }}
     .table-scroll table {{ margin-top: 0; }}
-    .tabs {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }}
+    .tabs {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .tab-button {{
       width: auto;
       margin: 0;
@@ -192,6 +193,40 @@ def render_status_page(risk_mode: str = "conservative") -> str:
     .tab-button.active {{ background: #6f42c1; color: var(--text); }}
     .tab-panel {{ display: none; }}
     .tab-panel.active {{ display: block; }}
+    .global-controls {{
+      display: grid;
+      grid-template-columns: minmax(260px, 1.4fr) repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }}
+    .risk-control {{
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px;
+    }}
+    .risk-control span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .risk-segmented {{
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      margin-top: 6px;
+      padding: 3px;
+      border: 1px solid #46335f;
+      border-radius: 999px;
+      background: #0f0a17;
+    }}
+    .risk-pill {{
+      width: 100%;
+      margin: 0;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .risk-pill.active {{ background: #6f42c1; color: var(--text); }}
     .action-CANCEL, .action-REDUCE {{ color: var(--danger); font-weight: 700; }}
     .action-KEEP {{ color: var(--ok); font-weight: 700; }}
     .action-REVIEW, .action-MOVE_LOWER {{ color: #e5c07b; font-weight: 700; }}
@@ -202,13 +237,6 @@ def render_status_page(risk_mode: str = "conservative") -> str:
       border-top: 1px solid var(--line);
       padding-top: 12px;
       margin-top: 12px;
-    }}
-    .risk-mode-form {{
-      display: block;
-      max-width: 260px;
-      border-top: 0;
-      padding-top: 0;
-      margin: 0 0 10px;
     }}
     label {{ color: var(--muted); font-size: 12px; }}
     input, select, button {{
@@ -225,39 +253,42 @@ def render_status_page(risk_mode: str = "conservative") -> str:
     .span-2 {{ grid-column: span 2; }}
     .span-5 {{ grid-column: 1 / -1; }}
     @media (max-width: 860px) {{
-      header, .grid, .metric-grid, form {{ grid-template-columns: 1fr; }}
+      .topbar {{ align-items: start; flex-direction: column; }}
+      .global-controls, .grid, .metric-grid, form {{ grid-template-columns: 1fr; }}
       .span-2, .span-5 {{ grid-column: auto; }}
     }}
   </style>
 </head>
 <body>
 <main>
-  <h1>Trading Lab</h1>
-  <div class="muted">Local decision dashboard. No broker connection.</div>
-  <nav class="tabs" aria-label="Dashboard tabs">
-    <button class="tab-button active" type="button" data-tab="daily">Daily</button>
-    <button class="tab-button" type="button" data-tab="positions">Positions</button>
-    <button class="tab-button" type="button" data-tab="orders">Open orders</button>
-    <button class="tab-button" type="button" data-tab="edit">Edit local CSVs</button>
-  </nav>
-
-  <section class="tab-panel active" id="tab-daily">
-    <header>
-      {_header_metric("Local time", metadata["local_time"], value_id="local-clock")}
-      {_header_metric("Last local refresh", metadata["local_time"], value_id="last-refresh")}
-      {_header_metric("Report updated", metadata["report_updated"])}
-      {_header_metric("Account value", _money(state.account_value))}
-      {_header_metric("Cash", _money(state.cash))}
-    </header>
-    <form class="risk-mode-form" method="get" action="/">
-      <label>Risk mode
-        <select name="risk_mode" onchange="this.form.submit()">
-          {_risk_option("conservative", risk_mode)}
-          {_risk_option("balanced", risk_mode)}
-          {_risk_option("aggressive", risk_mode)}
-        </select>
-      </label>
-    </form>
+  <div class="topbar">
+    <div>
+      <h1>Trading Lab</h1>
+      <div class="muted">Local decision dashboard. No broker connection.</div>
+    </div>
+    <nav class="tabs" aria-label="Dashboard tabs">
+      {_tab_button("daily", "Daily", active_tab)}
+      {_tab_button("positions", "Positions", active_tab)}
+      {_tab_button("orders", "Open orders", active_tab)}
+      {_tab_button("edit", "Edit local CSVs", active_tab)}
+    </nav>
+  </div>
+  <section class="global-controls" aria-label="Global dashboard controls">
+    <div class="risk-control">
+      <span>Risk mode</span>
+      <div class="risk-segmented" role="radiogroup" aria-label="Risk mode">
+        {_risk_pill("conservative", risk_mode)}
+        {_risk_pill("balanced", risk_mode)}
+        {_risk_pill("aggressive", risk_mode)}
+      </div>
+    </div>
+    {_header_metric("Local time", metadata["local_time"], value_id="local-clock")}
+    {_header_metric("Last local refresh", metadata["local_time"], value_id="last-refresh")}
+    {_header_metric("Report updated", metadata["report_updated"])}
+    {_header_metric("Account value", _money(state.account_value))}
+    {_header_metric("Cash", _money(state.cash))}
+  </section>
+  <section class="{_tab_panel_class("daily", active_tab)}" id="tab-daily">
     <p class="muted">Local dashboard refreshes hourly from existing files. Run tlfull to update market/model reports.</p>
 
     <section class="card tight">
@@ -316,7 +347,7 @@ def render_status_page(risk_mode: str = "conservative") -> str:
     </div>
   </section>
 
-  <section class="tab-panel" id="tab-positions">
+  <section class="{_tab_panel_class("positions", active_tab)}" id="tab-positions">
     <section class="card">
       <h2>Positions</h2>
       <p class="muted">No model-backed buy/sell predictions are claimed for non-traded holdings.</p>
@@ -330,7 +361,7 @@ def render_status_page(risk_mode: str = "conservative") -> str:
     </section>
   </section>
 
-  <section class="tab-panel" id="tab-orders">
+  <section class="{_tab_panel_class("orders", active_tab)}" id="tab-orders">
     <section class="card">
       <h2>Open orders</h2>
       <div class="table-scroll">
@@ -342,7 +373,7 @@ def render_status_page(risk_mode: str = "conservative") -> str:
     </section>
   </section>
 
-  <section class="tab-panel" id="tab-edit">
+  <section class="{_tab_panel_class("edit", active_tab)}" id="tab-edit">
     <section class="card">
       <h2>Edit local CSVs</h2>
       <div class="card warning">Local CSV update only. This does not place, cancel, or modify broker orders.</div>
@@ -363,15 +394,75 @@ def render_status_page(risk_mode: str = "conservative") -> str:
   updateLocalClock();
   setInterval(updateLocalClock, 1000);
   setTimeout(function () {{ window.location.reload(); }}, 60 * 60 * 1000);
+  var dashboardState = {{
+    tab: {active_tab!r},
+    riskMode: {risk_mode!r}
+  }};
+  function params() {{ return new URLSearchParams(window.location.search); }}
+  function storeState() {{
+    try {{
+      localStorage.setItem('tlPortfolioTab', dashboardState.tab);
+      localStorage.setItem('tlPortfolioRiskMode', dashboardState.riskMode);
+    }} catch (error) {{}}
+  }}
+  function updateUrl(replace) {{
+    var search = params();
+    search.set('tab', dashboardState.tab);
+    search.set('risk_mode', dashboardState.riskMode);
+    var next = window.location.pathname + '?' + search.toString();
+    if (replace) {{ history.replaceState(null, '', next); }}
+    else {{ window.location.assign(next); }}
+  }}
+  function activateTab(tab) {{
+    dashboardState.tab = tab;
+    document.querySelectorAll('.tab-button').forEach(function (node) {{
+      node.classList.toggle('active', node.dataset.tab === tab);
+    }});
+    document.querySelectorAll('.tab-panel').forEach(function (node) {{
+      node.classList.toggle('active', node.id === 'tab-' + tab);
+    }});
+    storeState();
+    updateUrl(true);
+  }}
+  function hydrateState() {{
+    var search = params();
+    var urlRiskMode = search.get('risk_mode');
+    try {{
+      dashboardState.tab = search.get('tab') || localStorage.getItem('tlPortfolioTab') || dashboardState.tab;
+      dashboardState.riskMode = urlRiskMode || localStorage.getItem('tlPortfolioRiskMode') || dashboardState.riskMode;
+    }} catch (error) {{
+      dashboardState.tab = search.get('tab') || dashboardState.tab;
+      dashboardState.riskMode = urlRiskMode || dashboardState.riskMode;
+    }}
+    if (!document.getElementById('tab-' + dashboardState.tab)) {{ dashboardState.tab = 'daily'; }}
+    if (!document.querySelector('[data-risk-mode="' + dashboardState.riskMode + '"]')) {{
+      dashboardState.riskMode = {risk_mode!r};
+    }}
+    if (!urlRiskMode && dashboardState.riskMode !== {risk_mode!r}) {{
+      storeState();
+      updateUrl(false);
+      return;
+    }}
+    document.querySelectorAll('.risk-pill').forEach(function (node) {{
+      var isActive = node.dataset.riskMode === dashboardState.riskMode;
+      node.classList.toggle('active', isActive);
+      node.setAttribute('aria-checked', isActive ? 'true' : 'false');
+    }});
+    activateTab(dashboardState.tab);
+  }}
   document.querySelectorAll('.tab-button').forEach(function (button) {{
     button.addEventListener('click', function () {{
-      document.querySelectorAll('.tab-button').forEach(function (node) {{ node.classList.remove('active'); }});
-      document.querySelectorAll('.tab-panel').forEach(function (node) {{ node.classList.remove('active'); }});
-      button.classList.add('active');
-      var panel = document.getElementById('tab-' + button.dataset.tab);
-      if (panel) {{ panel.classList.add('active'); }}
+      activateTab(button.dataset.tab);
     }});
   }});
+  document.querySelectorAll('.risk-pill').forEach(function (button) {{
+    button.addEventListener('click', function () {{
+      dashboardState.riskMode = button.dataset.riskMode;
+      storeState();
+      updateUrl(false);
+    }});
+  }});
+  hydrateState();
 </script>
 </body>
 </html>
@@ -420,7 +511,8 @@ def run_gui(host: str = "127.0.0.1", port: int = 8765) -> None:
         def do_GET(self) -> None:
             query = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
             risk_mode = query.get("risk_mode", ["conservative"])[-1]
-            body = render_status_page(risk_mode=risk_mode).encode("utf-8")
+            active_tab = query.get("tab", ["daily"])[-1]
+            body = render_status_page(risk_mode=risk_mode, active_tab=active_tab).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -544,9 +636,31 @@ def _forms() -> str:
     """
 
 
-def _risk_option(value: str, selected: str) -> str:
-    attr = " selected" if value == selected else ""
-    return f'<option value="{escape(value)}"{attr}>{escape(value)}</option>'
+def _normalize_tab(value: str) -> str:
+    return value if value in {"daily", "positions", "orders", "edit"} else "daily"
+
+
+def _tab_button(value: str, label: str, active_tab: str) -> str:
+    active = " active" if value == active_tab else ""
+    return (
+        f'<button class="tab-button{active}" type="button" '
+        f'data-tab="{escape(value)}">{escape(label)}</button>'
+    )
+
+
+def _tab_panel_class(value: str, active_tab: str) -> str:
+    active = " active" if value == active_tab else ""
+    return f"tab-panel{active}"
+
+
+def _risk_pill(value: str, selected: str) -> str:
+    active = " active" if value == selected else ""
+    label = value.capitalize()
+    return (
+        f'<button class="risk-pill{active}" type="button" role="radio" '
+        f'aria-checked="{str(value == selected).lower()}" '
+        f'data-risk-mode="{escape(value)}">{escape(label)}</button>'
+    )
 
 
 def _position_rows(state) -> str:

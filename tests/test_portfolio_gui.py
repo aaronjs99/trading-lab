@@ -73,10 +73,12 @@ def test_gui_render_includes_local_status_and_forms(tmp_path: Path, monkeypatch)
     assert ">Positions</button>" in html
     assert ">Open orders</button>" in html
     assert ">Edit local CSVs</button>" in html
-    assert 'name="risk_mode"' in html
-    assert 'value="conservative" selected' in html
-    assert 'value="balanced"' in html
-    assert 'value="aggressive"' in html
+    assert "Global dashboard controls" in html
+    assert "risk-segmented" in html
+    assert 'data-risk-mode="conservative"' in html
+    assert 'data-risk-mode="balanced"' in html
+    assert 'data-risk-mode="aggressive"' in html
+    assert "risk-pill active" in html
 
 
 def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, monkeypatch):
@@ -123,6 +125,12 @@ def test_gui_has_live_clock_hourly_refresh_and_scrollable_tables(tmp_path, monke
     assert "position: sticky" in html
     assert "tab-panel active" in html
     assert "button.dataset.tab" in html
+    assert "new URLSearchParams(window.location.search)" in html
+    assert "history.replaceState" in html
+    assert "tlPortfolioTab" in html
+    assert "tlPortfolioRiskMode" in html
+    assert "search.set('tab', dashboardState.tab)" in html
+    assert "search.set('risk_mode', dashboardState.riskMode)" in html
 
 
 def test_gui_render_does_not_invoke_full_daily_workflow(tmp_path, monkeypatch):
@@ -194,12 +202,30 @@ def test_gui_risk_mode_changes_recommendation_wording(tmp_path, monkeypatch):
     _write_dashboard_fixture(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    html = render_status_page(risk_mode="aggressive")
+    html = render_status_page(risk_mode="aggressive", active_tab="orders")
 
     assert "Aggressive mode accepts higher drawdown risk" in html
     assert "Trend-first advice" in html
-    assert 'value="aggressive" selected' in html
+    assert 'data-risk-mode="aggressive">Aggressive</button>' in html
+    assert 'aria-checked="true" data-risk-mode="aggressive"' in html
+    assert 'class="tab-button active" type="button" data-tab="orders"' in html
+    assert 'class="tab-panel active" id="tab-orders"' in html
     assert "Risk mode" in html
+
+
+def test_gui_risk_mode_is_global_and_persists_with_tabs(tmp_path, monkeypatch):
+    _write_dashboard_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    html = render_status_page(risk_mode="balanced", active_tab="positions")
+
+    assert html.index("risk-segmented") < html.index('id="tab-daily"')
+    assert html.index("risk-segmented") < html.index('id="tab-positions"')
+    assert 'class="tab-button active" type="button" data-tab="positions"' in html
+    assert 'class="tab-panel active" id="tab-positions"' in html
+    assert 'aria-checked="true" data-risk-mode="balanced"' in html
+    assert "window.location.assign(next)" in html
+    assert "hydrateState()" in html
 
 
 def test_gui_edit_tab_contains_local_csv_warning_and_forms(tmp_path, monkeypatch):
