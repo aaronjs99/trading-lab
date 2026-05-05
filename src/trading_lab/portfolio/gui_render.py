@@ -13,6 +13,7 @@ from trading_lab.decision import (
 )
 from trading_lab.portfolio.gui_assets import CSS, dashboard_script
 from trading_lab.portfolio.gui_forms import render_forms
+from trading_lab.portfolio.snapshots import read_snapshots
 from trading_lab.portfolio.state import (
     ACCOUNT_PATH,
     OPEN_ORDERS_PATH,
@@ -103,6 +104,7 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
         metadata,
         order_summary,
         advice,
+        _snapshot_card(risk_mode),
     )
     positions_tab = _positions_tab(
         active_tab,
@@ -180,6 +182,7 @@ def _daily_tab(
     metadata: dict[str, str],
     order_summary,
     advice,
+    snapshot_card: str,
 ) -> str:
     return f"""
   <section class="{_tab_panel_class("daily", active_tab)}" id="tab-daily">
@@ -239,6 +242,7 @@ def _daily_tab(
         <p class="muted">If prices are stale or missing, run market update or tlfull.</p>
       </section>
     </div>
+    {snapshot_card}
   </section>"""
 
 
@@ -298,6 +302,44 @@ def _edit_tab(active_tab: str) -> str:
       {render_forms()}
     </section>
   </section>"""
+
+
+def _snapshot_card(risk_mode: str) -> str:
+    return f"""
+    <section class="card">
+      <h2>Portfolio snapshots</h2>
+      <p class="muted">Local CSV history only. This does not run daily, download data, or contact a broker.</p>
+      <form method="post" action="/snapshot">
+        <input type="hidden" name="risk_mode" value="{escape(risk_mode)}">
+        <label class="span-2">Notes <input name="notes"></label>
+        <button type="submit">Record snapshot</button>
+      </form>
+      <h3>Recent snapshots</h3>
+      <div class="table-scroll mini-scroll">
+        <table>
+          <tr><th>Timestamp</th><th>Mode</th><th>Action</th><th>Traded</th><th>Value</th><th>Notes</th></tr>
+          {_snapshot_rows(read_snapshots(limit=5))}
+        </table>
+      </div>
+    </section>"""
+
+
+def _snapshot_rows(rows: list[dict[str, str]]) -> str:
+    if not rows:
+        return "<tr><td colspan='6'>No local snapshots recorded.</td></tr>"
+    out = []
+    for row in reversed(rows):
+        out.append(
+            "<tr>"
+            f"<td>{escape(row.get('timestamp', ''))}</td>"
+            f"<td>{escape(row.get('risk_mode', ''))}</td>"
+            f"<td>{escape(row.get('action', ''))}</td>"
+            f"<td>{escape(row.get('traded_symbol', ''))}</td>"
+            f"<td>{_money(_float_or_none(row.get('traded_value')))}</td>"
+            f"<td>{escape(row.get('notes', ''))}</td>"
+            "</tr>"
+        )
+    return "\n".join(out)
 
 
 def _decision_view_model(decision_text: str, inputs) -> dict[str, object]:
@@ -541,6 +583,15 @@ def _percent(value: str | None) -> float | None:
         if text.endswith("%"):
             return float(text[:-1]) / 100.0
         return float(text)
+    except ValueError:
+        return None
+
+
+def _float_or_none(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value.replace("$", "").replace(",", "").strip())
     except ValueError:
         return None
 

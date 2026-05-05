@@ -30,6 +30,14 @@ tl decide --risk-mode balanced
 tl decide --risk-mode aggressive
 ```
 
+Record local snapshots for later outcome analysis:
+
+```bash
+tl portfolio snapshot --risk-mode balanced --notes "morning review"
+tl portfolio snapshots
+tl decide --risk-mode balanced --snapshot --snapshot-notes "after review"
+```
+
 Local portfolio updates:
 
 ```bash
@@ -51,6 +59,7 @@ tlfull
 tl update cash 1000
 tl update account-value 5000
 tl decide --risk-mode balanced
+tl portfolio snapshot --risk-mode balanced --notes "morning review"
 tl portfolio gui
 ```
 
@@ -123,6 +132,29 @@ tl decide --account-value 5000 --cash 1000
 - `aggressive`: trend/risk-seeking. It can tolerate higher drawdown risk and rank orders by trend and ladder quality, while still showing exposure warnings.
 
 Risk mode changes local advice only. It does not trigger downloads, broker actions, or automated trading.
+
+## Snapshot History
+
+Portfolio snapshots are optional local history rows for future plots and outcome tracking. They read the current local portfolio files, existing market CSVs, and existing reports, then append one row to:
+
+```text
+data/processed/portfolio/snapshots.csv
+```
+
+That file lives under gitignored `data/`, so it is private local state and should not be committed. Snapshot commands are lightweight: they do not run `tlfull`, download market data, train models, run backtests, generate plots, connect to a broker, or place/cancel orders.
+
+Use:
+
+```bash
+tl portfolio snapshot --risk-mode balanced --notes "manual review"
+tl portfolio snapshots --limit 10
+```
+
+`tl decide` does not write snapshots by default, but you can opt in for a single run:
+
+```bash
+tl decide --risk-mode balanced --snapshot --snapshot-notes "decision recorded"
+```
 
 ## GUI
 
