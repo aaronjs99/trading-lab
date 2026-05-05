@@ -36,6 +36,10 @@ Record local snapshots for later outcome analysis:
 tl portfolio snapshot --risk-mode balanced --notes "morning review"
 tl portfolio snapshots
 tl decide --risk-mode balanced --snapshot --snapshot-notes "after review"
+tl portfolio outcome-record --risk-mode balanced --notes "track decision"
+tl portfolio outcome-update
+tl portfolio outcomes
+tl decide --risk-mode balanced --record-outcome --outcome-notes "track decision"
 ```
 
 Local portfolio updates:
@@ -60,6 +64,7 @@ tl update cash 1000
 tl update account-value 5000
 tl decide --risk-mode balanced
 tl portfolio snapshot --risk-mode balanced --notes "morning review"
+tl portfolio outcome-record --risk-mode balanced --notes "morning review"
 tl portfolio gui
 ```
 
@@ -155,6 +160,50 @@ tl portfolio snapshots --limit 10
 ```bash
 tl decide --risk-mode balanced --snapshot --snapshot-notes "decision recorded"
 ```
+
+## Outcome Tracking
+
+Decision outcome tracking is optional local history for evaluating whether daily decisions and suggested order ideas were useful. It appends rows to:
+
+```text
+data/processed/portfolio/decision_outcomes.csv
+```
+
+That file is under gitignored `data/` and should stay private/local. Outcome commands only read existing reports, local portfolio CSVs, and local market CSVs. They do not run `tlfull`, download prices, train models, run backtests, generate plots, connect to a broker, or place/cancel orders.
+
+Record the current decision state:
+
+```bash
+tl portfolio outcome-record --risk-mode balanced --notes "morning decision"
+```
+
+Update previously recorded rows after enough local future market data exists:
+
+```bash
+tl portfolio outcome-update
+```
+
+View recent rows:
+
+```bash
+tl portfolio outcomes --limit 10
+```
+
+Optional aliases are also available:
+
+```bash
+tl outcome record --risk-mode balanced --notes "morning decision"
+tl outcome update
+tl outcome list
+```
+
+`tl decide` does not record outcomes by default, but you can opt in for a single run:
+
+```bash
+tl decide --risk-mode balanced --record-outcome --outcome-notes "decision tracked"
+```
+
+Future outcome fields are filled only from local market CSVs when enough later rows exist. Until then, rows remain `PENDING` or `INSUFFICIENT_FUTURE_DATA`; missing local price data is marked `PRICE_MISSING`.
 
 ## GUI
 

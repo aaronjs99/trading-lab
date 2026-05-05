@@ -32,6 +32,8 @@ def main() -> None:
     )
     decide.add_argument("--snapshot", action="store_true")
     decide.add_argument("--snapshot-notes", default="")
+    decide.add_argument("--record-outcome", action="store_true")
+    decide.add_argument("--outcome-notes", default="")
 
     portfolio = sub.add_parser("portfolio")
     portfolio_sub = portfolio.add_subparsers(dest="portfolio_command")
@@ -50,6 +52,16 @@ def main() -> None:
     portfolio_snapshot.add_argument("--notes", default="")
     portfolio_snapshots = portfolio_sub.add_parser("snapshots")
     portfolio_snapshots.add_argument("--limit", type=int, default=10)
+    portfolio_outcome_record = portfolio_sub.add_parser("outcome-record")
+    portfolio_outcome_record.add_argument(
+        "--risk-mode",
+        choices=["conservative", "balanced", "aggressive"],
+        default="conservative",
+    )
+    portfolio_outcome_record.add_argument("--notes", default="")
+    portfolio_sub.add_parser("outcome-update")
+    portfolio_outcomes = portfolio_sub.add_parser("outcomes")
+    portfolio_outcomes.add_argument("--limit", type=int, default=10)
     portfolio_set = portfolio_sub.add_parser("set")
     portfolio_set.add_argument("symbol")
     portfolio_set.add_argument("quantity", type=float)
@@ -84,6 +96,19 @@ def main() -> None:
     update_order_clear.add_argument("symbol")
     update_order_sub.add_parser("clear-all")
 
+    outcome = sub.add_parser("outcome")
+    outcome_sub = outcome.add_subparsers(dest="outcome_command")
+    outcome_record = outcome_sub.add_parser("record")
+    outcome_record.add_argument(
+        "--risk-mode",
+        choices=["conservative", "balanced", "aggressive"],
+        default="conservative",
+    )
+    outcome_record.add_argument("--notes", default="")
+    outcome_list = outcome_sub.add_parser("list")
+    outcome_list.add_argument("--limit", type=int, default=10)
+    outcome_sub.add_parser("update")
+
     args, rest = parser.parse_known_args()
     command = args.command or "status"
 
@@ -110,18 +135,35 @@ def main() -> None:
             risk_mode=args.risk_mode,
         )
         print(text)
-        if not args.snapshot:
-            print("\nRun tl portfolio snapshot to record this state.")
-            return
-        from trading_lab.portfolio.snapshots import append_snapshot
+        wrote_extra = False
+        if args.snapshot:
+            from trading_lab.portfolio.snapshots import append_snapshot
 
-        result = append_snapshot(
-            risk_mode=args.risk_mode,
-            notes=args.snapshot_notes,
-            account_value=args.account_value,
-            cash=args.cash,
-        )
-        print(f"\nRecorded local-only portfolio snapshot at {result.path}.")
+            result = append_snapshot(
+                risk_mode=args.risk_mode,
+                notes=args.snapshot_notes,
+                account_value=args.account_value,
+                cash=args.cash,
+            )
+            print(f"\nRecorded local-only portfolio snapshot at {result.path}.")
+            wrote_extra = True
+        if args.record_outcome:
+            from trading_lab.portfolio.outcomes import append_outcome
+
+            result = append_outcome(
+                risk_mode=args.risk_mode,
+                notes=args.outcome_notes,
+                account_value=args.account_value,
+                cash=args.cash,
+            )
+            print(f"\nRecorded local-only decision outcome row at {result.path}.")
+            wrote_extra = True
+        if not wrote_extra:
+            print(
+                "\nRun tl portfolio snapshot to record this state.\n"
+                "Run tl portfolio outcome-record to track this decision outcome."
+            )
+            return
         return
 
     if command == "portfolio":
@@ -130,6 +172,10 @@ def main() -> None:
 
     if command == "update":
         _update_command(args)
+        return
+
+    if command == "outcome":
+        _outcome_command(args)
         return
 
     if command == "plots":
@@ -229,6 +275,23 @@ def _portfolio_command(args: argparse.Namespace) -> None:
 
         print(format_snapshots(read_snapshots(limit=args.limit)))
         return
+    if command == "outcome-record":
+        from trading_lab.portfolio.outcomes import append_outcome
+
+        result = append_outcome(risk_mode=args.risk_mode, notes=args.notes)
+        print(f"Recorded local-only decision outcome row at {result.path}.")
+        return
+    if command == "outcome-update":
+        from trading_lab.portfolio.outcomes import OUTCOMES_PATH, update_outcomes
+
+        updated = update_outcomes()
+        print(f"Updated {updated} local decision outcome row(s) in {OUTCOMES_PATH}.")
+        return
+    if command == "outcomes":
+        from trading_lab.portfolio.outcomes import format_outcomes, read_outcomes
+
+        print(format_outcomes(read_outcomes(limit=args.limit)))
+        return
     if command == "set":
         write_position(POSITIONS_PATH, args.symbol, args.quantity)
         print(f"Updated local position for {args.symbol.upper()} in {POSITIONS_PATH}.")
@@ -251,6 +314,28 @@ def _portfolio_command(args: argparse.Namespace) -> None:
         )
         return
     raise SystemExit(f"Unknown portfolio command: {command}")
+
+
+def _outcome_command(args: argparse.Namespace) -> None:
+    command = args.outcome_command or "list"
+    if command == "record":
+        from trading_lab.portfolio.outcomes import append_outcome
+
+        result = append_outcome(risk_mode=args.risk_mode, notes=args.notes)
+        print(f"Recorded local-only decision outcome row at {result.path}.")
+        return
+    if command == "list":
+        from trading_lab.portfolio.outcomes import format_outcomes, read_outcomes
+
+        print(format_outcomes(read_outcomes(limit=args.limit)))
+        return
+    if command == "update":
+        from trading_lab.portfolio.outcomes import OUTCOMES_PATH, update_outcomes
+
+        updated = update_outcomes()
+        print(f"Updated {updated} local decision outcome row(s) in {OUTCOMES_PATH}.")
+        return
+    raise SystemExit("Usage: tl outcome {record,list,update} ...")
 
 
 def _update_command(args: argparse.Namespace) -> None:
