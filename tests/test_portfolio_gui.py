@@ -160,8 +160,12 @@ def test_gui_combines_positions_with_holdings_review(tmp_path, monkeypatch):
     assert "META" in html
     assert "Review status" in html
     assert "Review note" in html
+    assert "Price date" in html
+    assert "Trend status" in html
+    assert "Trend note" in html
     assert "OK_SMALL" in html
     assert "PRICE_MISSING" in html
+    assert "no model-backed trade signal" in html
     assert "Portfolio holdings review" not in html
     assert "No model-backed buy/sell predictions are claimed" in html
 

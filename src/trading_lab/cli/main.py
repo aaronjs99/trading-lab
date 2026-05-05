@@ -151,11 +151,23 @@ def _portfolio_command(args: argparse.Namespace) -> None:
 
     command = args.portfolio_command or "status"
     if command == "status":
-        print(
-            summarize_portfolio_state(
-                build_portfolio_state(account_value=args.account_value, cash=args.cash)
-            )
-        )
+        state = build_portfolio_state(account_value=args.account_value, cash=args.cash)
+        lines = [summarize_portfolio_state(state)]
+        from trading_lab.config import load_trading_config
+        from trading_lab.portfolio.review import review_holdings
+
+        traded = load_trading_config().traded_symbol
+        reviews = review_holdings(state, traded)
+        if reviews:
+            lines.extend(["", "Non-traded holdings trend review:"])
+            for row in reviews:
+                date_text = f", price date {row.latest_price_date}" if row.latest_price_date else ""
+                lines.append(
+                    f"- {row.symbol}: size {row.status}, trend {row.trend_status}{date_text}. "
+                    f"{row.trend_note}"
+                )
+            lines.append("- No model-backed predictions are claimed for non-traded holdings.")
+        print("\n".join(lines))
         return
     if command == "positions":
         positions = read_positions()

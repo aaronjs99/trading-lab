@@ -54,6 +54,7 @@ class DecisionInputs:
     selected_signal: dict[str, str]
     portfolio_state: PortfolioState | None = None
     risk_mode: str = "conservative"
+    market_dir: Path = DEFAULT_MARKET_DIR
 
 
 def parse_position(value: str) -> Position:
@@ -179,6 +180,7 @@ def load_decision_inputs(
         selected_signal=selected_signal,
         portfolio_state=local_portfolio,
         risk_mode=resolved_risk_mode,
+        market_dir=market_dir,
     )
 
 
@@ -375,7 +377,7 @@ def _portfolio_holdings_review_lines(inputs: DecisionInputs) -> list[str]:
     state = inputs.portfolio_state
     if state is None:
         return []
-    reviews = review_holdings(state, inputs.traded_symbol)
+    reviews = review_holdings(state, inputs.traded_symbol, market_dir=inputs.market_dir)
     lines = ["Portfolio holdings review:"]
     if not reviews:
         lines.append("- No non-traded holdings to review.")
@@ -383,9 +385,11 @@ def _portfolio_holdings_review_lines(inputs: DecisionInputs) -> list[str]:
     for row in reviews:
         value = _format_money(row.value)
         allocation = _format_pct(row.allocation)
+        date_text = f", price date {row.latest_price_date}" if row.latest_price_date else ""
         lines.append(
             f"- {row.symbol}: qty {row.quantity:g}, value {value}, "
-            f"allocation {allocation}, price {row.price_status}, status {row.status}."
+            f"allocation {allocation}, price {row.price_status}, status {row.status}, "
+            f"trend {row.trend_status}{date_text}. {row.trend_note}"
         )
     lines.append("- No model-backed predictions are claimed for non-traded holdings.")
     return lines

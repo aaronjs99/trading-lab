@@ -245,3 +245,34 @@ def test_cli_update_commands_modify_local_csvs(tmp_path: Path, monkeypatch, caps
     assert read_account(ACCOUNT_PATH).account_value == 5000
     assert all(order.status == "canceled" for order in read_open_orders(OPEN_ORDERS_PATH))
     assert "Local-only update" in capsys.readouterr().out
+
+
+def test_cli_portfolio_status_includes_non_traded_trend_review(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    market_dir = tmp_path / "data" / "raw" / "market"
+    portfolio_dir.mkdir(parents=True)
+    market_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\n"
+        "TQQQ,4,current_position,2026-05-04\n"
+        "META,1,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n",
+        encoding="utf-8",
+    )
+    rows = ["date,close"] + [f"2026-05-{day:02d},{100 + day:.2f}" for day in range(1, 22)]
+    (market_dir / "TQQQ.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (market_dir / "META.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    import trading_lab.cli.main as cli_main
+
+    monkeypatch.setattr("sys.argv", ["tl", "portfolio", "status", "--account-value", "5000"])
+    cli_main.main()
+
+    out = capsys.readouterr().out
+    assert "Non-traded holdings trend review:" in out
+    assert "META: size REVIEW, trend" in out
+    assert "No model-backed predictions are claimed for non-traded holdings." in out

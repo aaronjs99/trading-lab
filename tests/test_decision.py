@@ -174,6 +174,47 @@ def test_decision_risk_mode_aggressive_keeps_deep_buy_under_review(tmp_path):
     assert "REVIEW TQQQ buy 1 @ $52.00" in text
 
 
+def test_decision_includes_trend_review_for_non_traded_holdings(tmp_path):
+    reports = _write_reports(tmp_path)
+    portfolio_dir = tmp_path / "data" / "raw" / "portfolio"
+    market_dir = tmp_path / "data" / "raw" / "market"
+    portfolio_dir.mkdir(parents=True)
+    market_dir.mkdir(parents=True)
+    (portfolio_dir / "positions.csv").write_text(
+        "symbol,quantity,notes,updated_at\n"
+        "TQQQ,4,current_position,2026-05-04\n"
+        "META,1,current_position,2026-05-04\n",
+        encoding="utf-8",
+    )
+    (portfolio_dir / "open_orders.csv").write_text(
+        "symbol,side,type,quantity,limit_price,time_in_force,status,submitted_at,notes\n",
+        encoding="utf-8",
+    )
+    meta_prices = "\n".join(
+        ["date,close"]
+        + [
+            f"2026-04-{i + 1:02d},{50 + i:.2f}" if i < 30 else f"2026-05-{i - 29:02d},{50 + i:.2f}"
+            for i in range(60)
+        ]
+    )
+    tqqq_prices = "\n".join(
+        ["date,close"]
+        + [
+            f"2026-04-{i + 1:02d},60.00" if i < 30 else f"2026-05-{i - 29:02d},60.00"
+            for i in range(60)
+        ]
+    )
+    (market_dir / "META.csv").write_text(meta_prices + "\n", encoding="utf-8")
+    (market_dir / "TQQQ.csv").write_text(tqqq_prices + "\n", encoding="utf-8")
+
+    text = render_daily_decision(reports_dir=reports, account_value=5000)
+
+    assert "META: qty 1" in text
+    assert "trend STRONG_UPTREND" in text
+    assert "uptrend intact, no model-backed trade signal" in text
+    assert "No model-backed predictions are claimed for non-traded holdings." in text
+
+
 def test_decision_missing_portfolio_files_do_not_break_decide(tmp_path):
     reports = _write_reports(tmp_path)
 
