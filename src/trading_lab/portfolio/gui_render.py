@@ -250,7 +250,7 @@ def _positions_tab(active_tab: str, state, holding_reviews, traded_symbol: str, 
       <p class="muted">No model-backed buy/sell predictions are claimed for non-traded holdings.</p>
       <div class="table-scroll">
         <table>
-          <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th><th>Review status</th><th>Review note</th></tr>
+          <tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Value</th><th>Allocation</th><th>Updated</th><th>Review status</th><th>Review note</th><th>Price date</th><th>Trend status</th><th>Trend note</th></tr>
           {_position_review_rows(state, holding_reviews, traded_symbol)}
         </table>
       </div>
@@ -393,6 +393,9 @@ def _position_review_rows(state, reviews, traded_symbol: str) -> str:
         else:
             status = review.status
             note = f"Price {review.price_status}; no model-backed prediction."
+        trend_status = review.trend_status if review is not None else "REVIEW"
+        trend_note = review.trend_note if review is not None else "No trend review available."
+        latest_price_date = review.latest_price_date if review is not None else ""
         rows.append(
             "<tr>"
             f"<td>{escape(symbol)}</td>"
@@ -403,9 +406,12 @@ def _position_review_rows(state, reviews, traded_symbol: str) -> str:
             f"<td>{escape(updated.get(symbol, ''))}</td>"
             f"<td>{escape(status)}</td>"
             f"<td>{escape(note)}</td>"
+            f"<td>{escape(latest_price_date)}</td>"
+            f"<td>{escape(trend_status)}</td>"
+            f"<td>{escape(trend_note)}</td>"
             "</tr>"
         )
-    return "\n".join(rows) or "<tr><td colspan='8'>No local positions or orders.</td></tr>"
+    return "\n".join(rows) or "<tr><td colspan='11'>No local positions or orders.</td></tr>"
 
 
 def _combined_order_rows(state, reviews) -> str:

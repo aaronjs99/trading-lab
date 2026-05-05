@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
+import csv
 from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
 
-from trading_lab.portfolio.state import OpenOrder, PortfolioState, SymbolPortfolioState
+from trading_lab.portfolio.state import MARKET_DIR, OpenOrder, PortfolioState, SymbolPortfolioState
 
 
 @dataclass(frozen=True)
@@ -14,6 +17,15 @@ class HoldingReview:
     allocation: float | None
     price_status: str
     status: str
+    trend_status: str = "REVIEW"
+    trend_note: str = "Trend unavailable; no model-backed trade signal."
+    latest_price_date: str = ""
+    return_5d: float | None = None
+    return_20d: float | None = None
+    distance_20dma: float | None = None
+    distance_50dma: float | None = None
+    drawdown_20d_high: float | None = None
+    drawdown_60d_high: float | None = None
 
 
 @dataclass(frozen=True)
@@ -47,23 +59,40 @@ class ExposureContext:
     buy_capacity: float | None
 
 
+@dataclass(frozen=True)
+class HoldingTrend:
+    status: str
+    latest_date: date | None = None
+    return_5d: float | None = None
+    return_20d: float | None = None
+    distance_20dma: float | None = None
+    distance_50dma: float | None = None
+    drawdown_20d_high: float | None = None
+    drawdown_60d_high: float | None = None
+
+
 def review_holdings(
     state: PortfolioState,
     traded_symbol: str,
     small_threshold: float = 0.02,
     review_size_threshold: float = 0.05,
+    market_dir: Path = MARKET_DIR,
+    reference_date: date | None = None,
 ) -> tuple[HoldingReview, ...]:
     rows: list[HoldingReview] = []
     traded = traded_symbol.upper()
+    resolved_reference_date = reference_date or _reference_market_date(market_dir, traded)
     for symbol in sorted(state.symbols):
         if symbol == traded:
             continue
         item = state.symbols[symbol]
         if item.quantity == 0:
             continue
+        trend = _holding_trend(symbol, market_dir, resolved_reference_date)
         if item.latest_price is None:
             status = "PRICE_MISSING"
             price_status = "missing"
+            trend = HoldingTrend("PRICE_MISSING")
         elif item.allocation_pct is None:
             status = "REVIEW"
             price_status = "known"
@@ -84,6 +113,15 @@ def review_holdings(
                 allocation=item.allocation_pct,
                 price_status=price_status,
                 status=status,
+                trend_status=trend.status,
+                trend_note=_trend_note(item, trend),
+                latest_price_date=trend.latest_date.isoformat() if trend.latest_date else "",
+                return_5d=trend.return_5d,
+                return_20d=trend.return_20d,
+                distance_20dma=trend.distance_20dma,
+                distance_50dma=trend.distance_50dma,
+                drawdown_20d_high=trend.drawdown_20d_high,
+                drawdown_60d_high=trend.drawdown_60d_high,
             )
         )
     return tuple(rows)
@@ -325,6 +363,152 @@ def normalize_risk_mode(value: str | None) -> str:
     if mode not in {"conservative", "balanced", "aggressive"}:
         raise ValueError("risk mode must be conservative, balanced, or aggressive")
     return mode
+
+
+def _reference_market_date(market_dir: Path, traded_symbol: str) -> date | None:
+    traded_date = _latest_market_row(traded_symbol, market_dir)[0]
+    if traded_date is not None:
+        return traded_date
+    return None
+
+
+def _holding_trend(
+    symbol: str,
+    market_dir: Path,
+    reference_date: date | None,
+) -> HoldingTrend:
+    reference_date = reference_date or date.today()
+    latest_date, prices = _latest_market_row(symbol, market_dir)
+    if latest_date is None or not prices:
+        return HoldingTrend("PRICE_MISSING")
+    if reference_date is not None and latest_date < reference_date:
+        return HoldingTrend("PRICE_STALE", latest_date=latest_date)
+
+    latest = prices[-1]
+    return_5d = _return_since(prices, 5)
+    return_20d = _return_since(prices, 20)
+    dma20 = _mean(prices[-20:]) if len(prices) >= 20 else None
+    dma50 = _mean(prices[-50:]) if len(prices) >= 50 else None
+    distance_20dma = (latest / dma20 - 1.0) if dma20 else None
+    distance_50dma = (latest / dma50 - 1.0) if dma50 else None
+    high20 = max(prices[-20:]) if len(prices) >= 20 else None
+    high60 = max(prices[-60:]) if len(prices) >= 60 else None
+    drawdown_20d_high = (latest / high20 - 1.0) if high20 else None
+    drawdown_60d_high = (latest / high60 - 1.0) if high60 else None
+
+    above20 = distance_20dma is not None and distance_20dma >= 0
+    above50 = distance_50dma is not None and distance_50dma >= 0
+    positive20 = return_20d is not None and return_20d > 0
+    negative20 = return_20d is not None and return_20d < 0
+    pullback = (
+        drawdown_20d_high is not None
+        and drawdown_20d_high <= -0.05
+        and (above50 or positive20)
+        and not (distance_20dma is not None and distance_20dma < -0.03 and not above50)
+    )
+
+    if pullback:
+        status = "PULLBACK"
+    elif above20 and above50 and positive20:
+        status = "STRONG_UPTREND"
+    elif above20 or positive20:
+        status = "UPTREND"
+    elif (
+        distance_20dma is not None
+        and distance_20dma < 0
+        and distance_50dma is not None
+        and distance_50dma < 0
+        and negative20
+    ):
+        status = "DOWNTREND"
+    else:
+        status = "REVIEW"
+    return HoldingTrend(
+        status,
+        latest_date=latest_date,
+        return_5d=return_5d,
+        return_20d=return_20d,
+        distance_20dma=distance_20dma,
+        distance_50dma=distance_50dma,
+        drawdown_20d_high=drawdown_20d_high,
+        drawdown_60d_high=drawdown_60d_high,
+    )
+
+
+def _latest_market_row(symbol: str, market_dir: Path) -> tuple[date | None, list[float]]:
+    path = market_dir / f"{symbol.upper()}.csv"
+    if not path.exists():
+        return None, []
+    rows: list[tuple[date, float]] = []
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            parsed_date = _parse_date(row.get("date", ""))
+            price = _row_price(row)
+            if parsed_date is not None and price is not None:
+                rows.append((parsed_date, price))
+    if not rows:
+        return None, []
+    rows.sort(key=lambda item: item[0])
+    return rows[-1][0], [price for _, price in rows]
+
+
+def _row_price(row: dict[str, str]) -> float | None:
+    normalized = {key.strip().lower().replace(" ", "_").replace("-", "_"): key for key in row}
+    for candidate in ("adj_close", "adjusted_close", "close"):
+        column = normalized.get(candidate)
+        if column and row.get(column, "").strip():
+            try:
+                return float(row[column].replace("$", "").replace(",", "").strip())
+            except ValueError:
+                return None
+    return None
+
+
+def _parse_date(value: str) -> date | None:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        try:
+            return datetime.strptime(text[:10], "%m/%d/%Y").date()
+        except ValueError:
+            return None
+
+
+def _return_since(values: list[float], periods: int) -> float | None:
+    if len(values) <= periods:
+        return None
+    base = values[-periods - 1]
+    if base == 0:
+        return None
+    return values[-1] / base - 1.0
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _trend_note(item: SymbolPortfolioState, trend: HoldingTrend) -> str:
+    prefix = "Tiny holding; " if item.allocation_pct is not None and item.allocation_pct < 0.02 else ""
+    if trend.status == "PRICE_MISSING":
+        return "Price data missing; run tlfull or market update."
+    if trend.status == "PRICE_STALE":
+        return "Price data stale; refresh before using this."
+    if trend.status == "STRONG_UPTREND":
+        return f"{prefix}uptrend intact, no model-backed trade signal."
+    if trend.status == "UPTREND":
+        return f"{prefix}trend is constructive, no model-backed trade signal."
+    if trend.status == "PULLBACK":
+        return f"{prefix}pullback from recent high; no model-backed trade signal."
+    if trend.status == "DOWNTREND":
+        return (
+            f"{prefix}price below 20DMA and 50DMA, review if this is intentional; "
+            "no model-backed trade signal."
+        )
+    return f"{prefix}mixed trend; review manually, no model-backed trade signal."
 
 
 def _review_other_symbol_order(
