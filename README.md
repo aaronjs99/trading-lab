@@ -316,7 +316,7 @@ tl portfolio gui
 
 Use the output as decision support only. Review the model quality gate, selected strategy eligibility, current exposure, and open-order checks before making any manual trade. The GUI only reads existing local files and edits local CSVs; it does not connect to a broker, log in to Robinhood, download prices, or place/cancel/modify real orders.
 
-See [docs/local_portfolio.md](docs/local_portfolio.md) for local portfolio CSV schemas, update commands, and risk-mode details.
+See [docs/local_portfolio.md](docs/local_portfolio.md) for local portfolio CSV schemas, update commands, and risk-mode details. See [docs/portfolio_gui.md](docs/portfolio_gui.md) for the local-only GUI walkthrough.
 
 ## Configuration
 

@@ -214,3 +214,5 @@ tl portfolio gui
 ```
 
 The GUI binds to localhost only and uses existing local files. It can edit `positions.csv`, `open_orders.csv`, and `account.csv` through forms, then reload the dashboard. It does not run the full daily workflow, download market data, train models, generate plots, or connect to any broker.
+
+See [portfolio_gui.md](portfolio_gui.md) for a full tab-by-tab GUI walkthrough with safe synthetic examples.
