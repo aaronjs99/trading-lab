@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from trading_lab.portfolio.gui import apply_form_action, render_status_page
+from trading_lab.portfolio.snapshots import read_snapshots
 from trading_lab.portfolio.state import read_account, read_open_orders, read_positions
 
 
@@ -94,6 +95,10 @@ def test_gui_contains_daily_decision_dark_css_dates_and_saved_account(tmp_path, 
     assert 'id="tab-daily"' in html
     assert "Portfolio summary" in html
     assert "Dates and updates" in html
+    assert "Portfolio snapshots" in html
+    assert "Recent snapshots" in html
+    assert 'action="/snapshot"' in html
+    assert "Record snapshot" in html
     assert "mini-scroll" in html
     assert "ACTION" not in html
     assert "HOLD" in html
@@ -269,8 +274,12 @@ def test_gui_apply_form_actions_edit_local_csvs(tmp_path: Path, monkeypatch):
         {"side": "buy", "symbol": "TQQQ", "quantity": "10", "limit_price": "58"},
     )
     assert apply_form_action("/order/clear", {"symbol": "TQQQ"})
+    assert apply_form_action("/snapshot", {"risk_mode": "balanced", "notes": "gui"})
 
     assert read_account().cash == 1000
     assert read_account().account_value == 5000
     assert read_positions()[0].quantity == 5
     assert read_open_orders()[0].status == "canceled"
+    rows = read_snapshots(tmp_path / "data" / "processed" / "portfolio" / "snapshots.csv")
+    assert rows[-1]["risk_mode"] == "balanced"
+    assert rows[-1]["notes"] == "gui"

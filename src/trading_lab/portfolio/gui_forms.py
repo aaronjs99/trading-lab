@@ -46,6 +46,14 @@ def apply_form_action(path: str, fields: dict[str, str]) -> str:
         symbol = fields.get("symbol", "").strip()
         clear_open_orders(OPEN_ORDERS_PATH, None if fields.get("all") == "1" else symbol)
         return "cleared local orders"
+    if path == "/snapshot":
+        from trading_lab.portfolio.snapshots import append_snapshot
+
+        append_snapshot(
+            risk_mode=fields.get("risk_mode", "conservative"),
+            notes=fields.get("notes", "").strip(),
+        )
+        return "recorded local snapshot"
     raise ValueError(f"Unknown form action: {path}")
 
 

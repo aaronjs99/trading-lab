@@ -30,6 +30,8 @@ def main() -> None:
         choices=["conservative", "balanced", "aggressive"],
         default="conservative",
     )
+    decide.add_argument("--snapshot", action="store_true")
+    decide.add_argument("--snapshot-notes", default="")
 
     portfolio = sub.add_parser("portfolio")
     portfolio_sub = portfolio.add_subparsers(dest="portfolio_command")
@@ -39,6 +41,15 @@ def main() -> None:
     portfolio_sub.add_parser("positions")
     portfolio_sub.add_parser("orders")
     portfolio_sub.add_parser("gui")
+    portfolio_snapshot = portfolio_sub.add_parser("snapshot")
+    portfolio_snapshot.add_argument(
+        "--risk-mode",
+        choices=["conservative", "balanced", "aggressive"],
+        default="conservative",
+    )
+    portfolio_snapshot.add_argument("--notes", default="")
+    portfolio_snapshots = portfolio_sub.add_parser("snapshots")
+    portfolio_snapshots.add_argument("--limit", type=int, default=10)
     portfolio_set = portfolio_sub.add_parser("set")
     portfolio_set.add_argument("symbol")
     portfolio_set.add_argument("quantity", type=float)
@@ -91,15 +102,26 @@ def main() -> None:
     if command == "decide":
         from trading_lab.decision import render_daily_decision
 
-        print(
-            render_daily_decision(
-                profile=args.profile,
-                account_value=args.account_value,
-                positions=args.position,
-                cash=args.cash,
-                risk_mode=args.risk_mode,
-            )
+        text = render_daily_decision(
+            profile=args.profile,
+            account_value=args.account_value,
+            positions=args.position,
+            cash=args.cash,
+            risk_mode=args.risk_mode,
         )
+        print(text)
+        if not args.snapshot:
+            print("\nRun tl portfolio snapshot to record this state.")
+            return
+        from trading_lab.portfolio.snapshots import append_snapshot
+
+        result = append_snapshot(
+            risk_mode=args.risk_mode,
+            notes=args.snapshot_notes,
+            account_value=args.account_value,
+            cash=args.cash,
+        )
+        print(f"\nRecorded local-only portfolio snapshot at {result.path}.")
         return
 
     if command == "portfolio":
@@ -195,6 +217,17 @@ def _portfolio_command(args: argparse.Namespace) -> None:
         from trading_lab.portfolio.gui import run_gui
 
         run_gui()
+        return
+    if command == "snapshot":
+        from trading_lab.portfolio.snapshots import append_snapshot
+
+        result = append_snapshot(risk_mode=args.risk_mode, notes=args.notes)
+        print(f"Recorded local-only portfolio snapshot at {result.path}.")
+        return
+    if command == "snapshots":
+        from trading_lab.portfolio.snapshots import format_snapshots, read_snapshots
+
+        print(format_snapshots(read_snapshots(limit=args.limit)))
         return
     if command == "set":
         write_position(POSITIONS_PATH, args.symbol, args.quantity)
