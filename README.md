@@ -1,408 +1,184 @@
+<!-- TRADING_LAB_HERO_START -->
 # trading-lab
 
-`trading-lab` is a local research and decision-support toolkit for studying short-term leveraged ETF trading workflows. The default configuration remains the original TQQQ/QQQ-style setup, but the modeling, dashboard, and backtest paths are intended to follow configured symbols. It combines market-data ingestion, feature generation, regime modeling, walk-forward strategy evaluation, personal trade-history analysis, dashboard reports, plots, and order-reconciliation helpers.
+<p align="center">
+  <img src="docs/assets/trading_lab_architecture_and_decision_flow.png" alt="trading-lab architecture and daily decision workflow" width="100%">
+</p>
 
-The project is designed as a research lab, not an automated trading bot. It produces probabilities, diagnostics, action cards, allocation suggestions, and risk checks, while deliberately keeping final trading decisions manual. It does not require broker credentials, does not include Robinhood login/API integration, and does not place trades.
+<p align="center">
+  <a href="https://github.com/aaronjs99/trading-lab/actions/workflows/tests.yml">
+    <img alt="tests" src="https://github.com/aaronjs99/trading-lab/actions/workflows/tests.yml/badge.svg">
+  </a>
+  <a href="https://github.com/aaronjs99/trading-lab/releases/tag/v0.3.0">
+    <img alt="release" src="https://img.shields.io/badge/release-v0.3.0-purple">
+  </a>
+  <img alt="python" src="https://img.shields.io/badge/python-3.12-blue">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="broker" src="https://img.shields.io/badge/broker-login%20free-orange">
+  <img alt="local first" src="https://img.shields.io/badge/local--first-yes-7B3FCB">
+</p>
 
-## Current status
+<p align="center">
+  <b>Local-first trading research, portfolio-aware decision support, and manual trading review.</b>
+</p>
 
-This repository is at a clean modular baseline:
+<p align="center">
+  <code>market data</code> · <code>features</code> · <code>models</code> · <code>walk-forward evaluation</code> · <code>tl decide</code> · <code>portfolio GUI</code>
+</p>
 
-- Source logic lives under `src/trading_lab/`.
-- Scripts in `scripts/` are intentionally thin wrappers.
-- Generated/private data is ignored and should not be committed.
-- Daily workflow, tests, model diagnostics, plots, and audit tooling are integrated.
-- The current default model is explicitly flagged as degraded/weak against a trusted baseline, so the system warns against over-trusting the live signal.
+---
 
-The workflow is intentionally conservative: a model probability alone is not treated as actionable unless model quality, strategy eligibility, trend context, and allocation constraints agree.
+**trading-lab** is a local-first research and decision-support toolkit for market regime modeling, walk-forward evaluation, portfolio-aware daily guidance, and manual trading review.
 
-## Key capabilities
+It is built around one principle: **analyze locally, decide deliberately, and never automate broker orders.**
 
-### Market data pipeline
+## What it does
 
-- Downloads and caches daily market data.
-- Skips downloads when local market CSVs were already refreshed that day.
-- Builds market features from configured symbols.
-- Uses config-backed traded and benchmark symbols rather than hardcoding TQQQ/QQQ throughout the codebase.
-
-Default watchlist includes broad index, leveraged/inverse, sector, and large-cap symbols such as:
-
-- SPY
-- QQQ
-- TQQQ
-- SQQQ
-- SMH
-- SOXX
-- XLK
-- AAPL
-- MSFT
-- NVDA
-- AMD
-- AVGO
-- TSLA
-- META
-- AMZN
-- GOOGL
-- PLTR
-- HOOD
-
-### Feature generation
-
-The feature builder creates price, trend, volatility, moving-average-distance, drawdown, and prediction-target columns. Prediction targets are represented by config-backed `PredictionTarget` objects.
-
-Current default targets:
-
-- TQQQ hits +5% before -5% within 5 trading days.
-- TQQQ hits +8% before -8% within 10 trading days.
-
-These are defaults, not intended as permanent hardcoded assumptions.
-
-### Modeling
-
-The repo includes:
-
-- Regime model training.
-- Latest signal scoring.
-- Multi-horizon probability scoring.
-- Model-zoo evaluation.
-- Selected-model scoring.
-- Model quality gate.
-- Trusted baseline comparison.
-- Model degradation diagnostics.
-
-The model quality gate checks whether the selected model is good enough to trust. It currently reports caution when validation metrics are weak.
-
-### Backtesting and strategy selection
-
-The repo supports:
-
-- Daily regime strategy backtests.
-- Event strategy backtests.
-- Walk-forward strategy optimization.
-- Strategy selection with safeguards for infinite or unstable profit-factor values.
-- Eligibility checks for live action.
-
-Strategy selection is intentionally conservative and can fall back when strict filters fail, instead of crashing or blindly selecting unstable rows.
-
-### Personal trading analysis
-
-The Robinhood pipeline can ingest exported trade history and generate:
-
-- Normalized trade ledger.
-- FIFO realized P&L.
-- Positions.
-- Symbol/bucket summaries.
-- Personal edge summaries.
-
-Private CSVs and generated reports are ignored and should stay local.
-
-### Daily dashboard
-
-The daily workflow generates:
-
-- Full decision summary.
-- Concise action card.
-- Multi-horizon probabilities.
-- Selected prediction model summary.
-- Model quality gate.
-- Model comparison/degradation report.
-- Personal trading edge summary.
-- Suggested configured traded-symbol ladder.
-- Order reconciliation checks.
-- Dashboard plots.
-
-The concise action card is intended for quick daily use.
-
-### Plots
-
-The dashboard generates plots under `data/reports/plots/`, including:
-
-- Configured traded-symbol price context.
-- Configured benchmark-symbol regime context.
-- Configured traded-symbol drawdown context.
-- Model probability history.
-- Strategy equity curves.
-- Walk-forward top strategies.
-
-Generated plots are local artifacts and are not tracked.
-
-## Repository layout
-
-```text
-config/
-  account.yaml
-  market_symbols.txt
-  trading.yaml
-
-scripts/
-  Thin command wrappers for workflows and reports.
-
-src/trading_lab/
-  backtests/      Backtest engines and walk-forward optimization.
-  cli/            Command-center entrypoints.
-  config/         Trading symbols, settings, target definitions, column helpers.
-  dashboard/      Daily summary and action card generation.
-  data/           Market data download/cache utilities.
-  devtools/       Audit, cleanup, debug snapshot helpers.
-  features/       Market feature and target-column generation.
-  models/         Training, model zoo, live scoring, quality, comparison, diagnostics.
-  plots/          Dashboard and model plotting.
-  reports/        Robinhood/trade-history reports.
-  signals/        Allocation, ladder, order parsing/reconciliation, regime signals.
-  strategy/       Strategy selection and eligibility.
-  workflows/      Orchestration modules.
-
-tests/
-  Unit and smoke tests for the modular components.
-```
+| Area | Capability |
+|---|---|
+| **Market pipeline** | Update market data, build features, generate target labels, and evaluate multiple target modes. |
+| **Modeling** | Train and compare regime models, run diagnostics, score latest conditions, and perform walk-forward strategy evaluation. |
+| **Daily decision support** | Generate fast `tl decide` guidance with BUY / HOLD / WAIT / REVIEW style output, ladder ideas, blockers, and risk-mode-aware advice. |
+| **Local portfolio state** | Track positions, open orders, cash, and account value using gitignored local CSVs. |
+| **Portfolio dashboard** | Launch a local browser GUI with Daily, Positions, Open orders, and Edit local CSVs tabs. |
+| **Risk modes** | Switch between `conservative`, `balanced`, and `aggressive` decision framing. |
+| **History tracking** | Record local portfolio snapshots and decision outcomes for future review. |
+| **Repo quality** | Includes CI, audit tooling, tests, public demo fixtures, docs, and release hygiene. |
 
 ## Quick start
 
-### 1. Clone and enter the repo
-
 ```bash
-git clone https://github.com/aaronjs99/trading-lab.git
-cd trading-lab
-```
-
-### 2. Create a Python environment
-
-The project has been developed with Python 3.13 via Miniconda, but any compatible modern Python environment should work if dependencies install cleanly.
-
-```bash
-python -m pip install -e .
-```
-
-If your environment does not install test/model dependencies automatically, install the expected scientific stack:
-
-```bash
-python -m pip install pandas numpy scikit-learn matplotlib yfinance pytest pyyaml
-```
-
-### 3. Run the synthetic demo
-
-Fresh public clones can run a no-network demo from committed fake fixtures:
-
-```bash
-python -m trading_lab.cli.main demo
-# or
-./scripts/tl_demo.sh
-```
-
-The demo uses tiny synthetic SOXL/XLK/SPY price CSVs from `examples/demo_data/`, writes all generated outputs to a temporary directory, and prints a small action card plus decision readout. It does not touch real `data/`, require Robinhood, or use private files.
-
-### 4. Run tests
-
-```bash
-./scripts/tl_test.sh
-```
-
-### 5. Run the full daily workflow
-
-```bash
-./scripts/tl_full_daily.sh
-```
-
-### 6. Show compact status/action card
-
-```bash
-./scripts/tl_command.sh card
-```
-
-### 7. Show full status
-
-```bash
-./scripts/tl_status.sh
-```
-
-### 8. Regenerate plots
-
-```bash
-python scripts/plot_dashboard.py
-python scripts/plot_model_dashboard.py
-```
-
-## Common commands
-
-```bash
-# No-network synthetic demo
-python -m trading_lab.cli.main demo
-
-# Full daily workflow
-./scripts/tl_full_daily.sh
-
-# Full saved status
-./scripts/tl_status.sh
-
-# Compact action card
-./scripts/tl_command.sh card
-
-# Update market data only
-python scripts/update_market_data.py
-
-# Build market features only
-python scripts/build_market_features.py
-
-# Train regime model
-python scripts/train_regime_model.py
-
-# Score latest regime
-python scripts/score_latest_regime.py
-
-# Score multi-horizon signals
-python scripts/score_multi_horizon.py
-
-# Run model zoo
-python scripts/run_model_zoo.py
-
-# Run model quality gate
-python scripts/model_quality_gate.py
-
-# Compare current model to trusted baseline
-python scripts/model_compare.py
-
-# Generate model degradation diagnostics
-python scripts/model_diagnostics.py
-
-# Run repo audit
-python scripts/audit_repo.py
-
-# Remove local Python cruft
-python scripts/clean_cruft.py
-```
-
-## Daily Workflow
-
-The normal daily flow is manual-first and local-only. Use `tlfull` when you want the heavier refresh path that updates market/model reports, then use the lightweight commands for decision review and local portfolio state.
-
-```bash
+# Heavy refresh: market data, features, models, reports
 tlfull
-tl decide
-tl portfolio status
-tl portfolio gui
-```
 
-Risk mode changes the portfolio/order advice style without placing orders:
-
-```bash
-tl decide --risk-mode conservative
+# Lightweight decision, no retraining or broker access
 tl decide --risk-mode balanced
-tl decide --risk-mode aggressive
-```
 
-Local account and portfolio edits update CSV files under `data/raw/portfolio/` only:
+# Local portfolio dashboard
+tl portfolio gui
 
-```bash
-tl update cash AMOUNT
-tl update account-value AMOUNT
-tl update buy SYMBOL QTY
-tl update sell SYMBOL QTY
-tl update set SYMBOL QTY
-tl update order buy SYMBOL QTY LIMIT
-tl update order sell SYMBOL QTY LIMIT
-tl update order clear SYMBOL
-tl update order clear-all
-```
-
-A typical morning routine:
-
-```bash
-tlfull
-tl update cash 1000
+# Local-only portfolio updates
+tl update cash 1624.35
 tl update account-value 5000
-tl decide --risk-mode balanced
+tl update buy TQQQ 1
+tl update sell TQQQ 1
+tl update set TQQQ 4
+tl update order buy TQQQ 10 58.00
+tl update order sell TQQQ 4 68.50
+
+# Record local history
+tl portfolio snapshot --risk-mode balanced --notes "morning review"
+tl portfolio outcome-record --risk-mode balanced --notes "tracked decision"
+```
+
+## Core workflow
+
+```mermaid
+flowchart LR
+    A[Market CSVs] --> B[Feature pipeline]
+    B --> C[Modeling + evaluation]
+    C --> D[Daily decision engine]
+    E[Local portfolio CSVs] --> D
+    E --> F[Portfolio GUI]
+    D --> F
+    D --> G[Snapshots + outcome tracking]
+    F --> G
+```
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `tlfull` | Heavy refresh: market data, features, models, reports, and plots. |
+| `tl decide` | Lightweight read-only decision using existing reports and local files. |
+| `tl decide --risk-mode balanced` | Balanced risk/exposure + trend/ladder guidance. |
+| `tl decide --risk-mode aggressive` | Trend/risk-seeking framing while still showing exposure warnings. |
+| `tl portfolio status` | View local positions, open orders, account/cash, exposure, and trend review. |
+| `tl portfolio gui` | Launch the local browser dashboard at `127.0.0.1`. |
+| `tl portfolio snapshot` | Append a local portfolio snapshot under gitignored `data/`. |
+| `tl portfolio outcome-record` | Record a local decision outcome row for future evaluation. |
+| `tl portfolio outcome-update` | Update tracked outcomes using local market CSVs. |
+
+## Risk modes
+
+| Mode | Behavior |
+|---|---|
+| **Conservative** | Exposure-first. If current or pending exposure exceeds the cap, buy orders are usually marked cancel/reduce. |
+| **Balanced** | Blends exposure limits with trend and ladder quality. Deep pullback orders may be reviewed rather than canceled. |
+| **Aggressive** | Trend/risk-seeking. Shows exposure warnings but does not automatically reject every deeper buy solely due to conservative exposure limits. |
+
+## Local portfolio files
+
+Local portfolio state is stored under gitignored `data/raw/portfolio/`.
+
+| File | Purpose |
+|---|---|
+| `positions.csv` | Current local position quantities. Does not store prices. |
+| `open_orders.csv` | Manually tracked open limit orders. Does not place/cancel broker orders. |
+| `account.csv` | Local cash and account value entries. |
+
+Historical tracking is stored under gitignored `data/processed/portfolio/`.
+
+| File | Purpose |
+|---|---|
+| `snapshots.csv` | Local portfolio snapshots over time. |
+| `decision_outcomes.csv` | Tracked decisions and future outcome fields. |
+
+## Portfolio GUI
+
+The local GUI is a dashboard for viewing and editing local CSV state only.
+
+```bash
 tl portfolio gui
 ```
 
-Use the output as decision support only. Review the model quality gate, selected strategy eligibility, current exposure, and open-order checks before making any manual trade. The GUI only reads existing local files and edits local CSVs; it does not connect to a broker, log in to Robinhood, download prices, or place/cancel/modify real orders.
+It includes:
 
-See [docs/local_portfolio.md](docs/local_portfolio.md) for local portfolio CSV schemas, update commands, and risk-mode details. See [docs/portfolio_gui.md](docs/portfolio_gui.md) for the local-only GUI walkthrough.
+- **Daily**: decision, risk mode, account/cash, blockers, advice, order ideas.
+- **Positions**: positions, allocations, price status, and non-model-backed trend review.
+- **Open orders**: local open-order table with recommendation/review columns.
+- **Edit local CSVs**: local-only forms for positions, cash/account value, and open orders.
+- **Snapshots / outcomes**: record local state and track decision usefulness over time.
 
-## Configuration
+## Safety model
 
-Main configuration files live in `config/`.
+This repo is designed for **manual decision support only**.
 
-### `config/trading.yaml`
+- No Robinhood login required.
+- No broker credentials stored.
+- No automated order placement.
+- Local portfolio files live under gitignored `data/`.
+- GUI actions edit local CSVs only.
+- Market/model refresh is explicit, not automatic.
+- Portfolio status, `tl decide`, snapshots, outcomes, and GUI render are local/read-only with respect to broker accounts.
 
-Defines the core trading setup, including:
+## Documentation
 
-- core symbol
-- benchmark symbol
-- traded symbol
-- inverse symbol
+- [Local portfolio workflow](docs/local_portfolio.md)
+- [Portfolio GUI guide](docs/portfolio_gui.md)
 
-The default profile is centered on SPY/QQQ/TQQQ/SQQQ and uses the configured default prediction targets. The research profile can be enabled with `TRADING_LAB_PROFILE=research`; it opts into experiment-selected targets when available so research changes can be evaluated without changing the conservative default daily behavior.
+<!-- TRADING_LAB_HERO_END -->
 
-### `config/market_symbols.txt`
-
-Defines the market symbols downloaded and used for feature generation.
-
-### `config/account.yaml`
-
-Stores local account assumptions used for allocation/order-reconciliation logic. Do not put sensitive credentials here.
-
-## Generated data and privacy
-
-Generated and private files should stay out of git. The repo is intended to ignore local data such as:
-
-```text
-data/
-data/raw/
-data/processed/
-data/reports/
-*.csv trade exports
-plots
-local caches
-```
-
-Before pushing publicly, run:
+## Development
 
 ```bash
-git ls-files | grep -Ei '(^data/|robinhood|\.csv$|\.xlsx$|\.env|secret|token|password|key|credential)' || true
-python scripts/audit_repo.py
+python -W error -m py_compile $(git ls-files "*.py")
+./scripts/tl_test.sh
+python -B scripts/audit_repo.py
+pytest --durations=20 -q
 ```
 
-If anything private appears, remove it from git before publishing.
+## Release status
 
-## Design principles
+Current release: **v0.3.0**
 
-### Manual-first
+Release highlights:
 
-This project does not place trades. It produces structured decision support.
-
-### Conservative by default
-
-Weak models should warn, not encourage action. The model quality gate and baseline comparison are part of the decision process.
-
-### Config-driven
-
-Symbols and prediction targets should come from configuration objects, not scattered string literals.
-
-### Modular source, thin scripts
-
-Business logic belongs in `src/trading_lab/`. Scripts should be thin entrypoints.
-
-### Research transparency
-
-The pipeline reports model quality, degradation, diagnostics, strategy selection, and eligibility so that model outputs are auditable.
-
-## Current model caveat
-
-The current generalized feature builder changed the effective training/target window. The repository now correctly reports that the selected model is degraded against the trusted baseline. That is expected and useful: the next research step is to compare target-label semantics and recover model quality while preserving modularity.
-
-Likely next experiments:
-
-- Compare barrier-first-hit targets against horizon-return targets.
-- Recover larger usable training windows.
-- Improve feature-target alignment.
-- Re-evaluate model-zoo metrics.
-- Add richer validation dashboards.
-- Avoid overfitting to short recent windows.
-
-## License
-
-This project is licensed under the MIT License. See `LICENSE`.
-
-## Disclaimer
-
-This repository is for research, education, and personal decision support only. It is not financial advice, investment advice, or an automated trading system. Leveraged ETFs such as TQQQ and inverse ETFs such as SQQQ involve substantial risk, path dependence, volatility decay, and potential for large drawdowns. Use at your own risk.
+- Local portfolio/account/open-order state.
+- Portfolio-aware `tl decide`.
+- Conservative, balanced, and aggressive risk modes.
+- Localhost portfolio GUI.
+- Non-traded holding trend review.
+- Local snapshot history.
+- Decision outcome tracking.
+- Public demo/data hygiene and documentation.
