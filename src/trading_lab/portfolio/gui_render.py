@@ -13,6 +13,7 @@ from trading_lab.decision import (
 )
 from trading_lab.portfolio.gui_assets import CSS, dashboard_script
 from trading_lab.portfolio.gui_forms import render_forms
+from trading_lab.portfolio.outcomes import read_outcomes
 from trading_lab.portfolio.snapshots import read_snapshots
 from trading_lab.portfolio.state import (
     ACCOUNT_PATH,
@@ -105,6 +106,7 @@ def render_status_page(risk_mode: str = "conservative", active_tab: str = "daily
         order_summary,
         advice,
         _snapshot_card(risk_mode),
+        _outcome_card(risk_mode),
     )
     positions_tab = _positions_tab(
         active_tab,
@@ -183,6 +185,7 @@ def _daily_tab(
     order_summary,
     advice,
     snapshot_card: str,
+    outcome_card: str,
 ) -> str:
     return f"""
   <section class="{_tab_panel_class("daily", active_tab)}" id="tab-daily">
@@ -243,6 +246,7 @@ def _daily_tab(
       </section>
     </div>
     {snapshot_card}
+    {outcome_card}
   </section>"""
 
 
@@ -337,6 +341,48 @@ def _snapshot_rows(rows: list[dict[str, str]]) -> str:
             f"<td>{escape(row.get('traded_symbol', ''))}</td>"
             f"<td>{_money(_float_or_none(row.get('traded_value')))}</td>"
             f"<td>{escape(row.get('notes', ''))}</td>"
+            "</tr>"
+        )
+    return "\n".join(out)
+
+
+def _outcome_card(risk_mode: str) -> str:
+    return f"""
+    <section class="card">
+      <h2>Decision outcomes</h2>
+      <p class="muted">Local outcome tracking only. This rereads existing CSVs and never runs daily or contacts a broker.</p>
+      <form method="post" action="/outcome/record">
+        <input type="hidden" name="risk_mode" value="{escape(risk_mode)}">
+        <label class="span-2">Notes <input name="notes"></label>
+        <button type="submit">Record outcome</button>
+      </form>
+      <form method="post" action="/outcome/update">
+        <button type="submit">Update outcomes</button>
+      </form>
+      <h3>Recent outcomes</h3>
+      <div class="table-scroll mini-scroll">
+        <table>
+          <tr><th>Timestamp</th><th>Mode</th><th>Action</th><th>Symbol</th><th>Price</th><th>5d return</th><th>Status</th></tr>
+          {_outcome_rows(read_outcomes(limit=5))}
+        </table>
+      </div>
+    </section>"""
+
+
+def _outcome_rows(rows: list[dict[str, str]]) -> str:
+    if not rows:
+        return "<tr><td colspan='7'>No local outcomes recorded.</td></tr>"
+    out = []
+    for row in reversed(rows):
+        out.append(
+            "<tr>"
+            f"<td>{escape(row.get('decision_timestamp', ''))}</td>"
+            f"<td>{escape(row.get('risk_mode', ''))}</td>"
+            f"<td>{escape(row.get('action', ''))}</td>"
+            f"<td>{escape(row.get('traded_symbol', ''))}</td>"
+            f"<td>{_money(_float_or_none(row.get('traded_price_at_decision')))}</td>"
+            f"<td>{_percent_text(row.get('return_5d', ''))}</td>"
+            f"<td>{escape(row.get('outcome_status', ''))}</td>"
             "</tr>"
         )
     return "\n".join(out)
@@ -610,3 +656,8 @@ def _allocation(value: float | None) -> str:
     if value is None:
         return "unknown"
     return f"{value:.1%}"
+
+
+def _percent_text(value: str) -> str:
+    parsed = _float_or_none(value)
+    return "" if parsed is None else f"{parsed:.1%}"

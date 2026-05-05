@@ -54,6 +54,19 @@ def apply_form_action(path: str, fields: dict[str, str]) -> str:
             notes=fields.get("notes", "").strip(),
         )
         return "recorded local snapshot"
+    if path == "/outcome/record":
+        from trading_lab.portfolio.outcomes import append_outcome
+
+        append_outcome(
+            risk_mode=fields.get("risk_mode", "conservative"),
+            notes=fields.get("notes", "").strip(),
+        )
+        return "recorded local outcome"
+    if path == "/outcome/update":
+        from trading_lab.portfolio.outcomes import update_outcomes
+
+        update_outcomes()
+        return "updated local outcomes"
     raise ValueError(f"Unknown form action: {path}")
 
 
