@@ -9,7 +9,7 @@ from trading_lab.portfolio.gui_forms import apply_form_action
 from trading_lab.portfolio.gui_render import render_status_page
 
 
-def run_gui(host: str = "127.0.0.1", port: int = 8765) -> None:
+def run_gui(host: str = "127.0.0.1", port: int = 811, open_browser: bool = True) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             query = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
@@ -46,7 +46,7 @@ def run_gui(host: str = "127.0.0.1", port: int = 8765) -> None:
     url = f"http://{host}:{server.server_port}/"
     print(f"Local-only portfolio GUI: {url}")
     print("Press Ctrl+C to stop.")
-    webbrowser.open(url)
+    webbrowser.open(url) if open_browser else None
     try:
         server.serve_forever()
     except KeyboardInterrupt:
