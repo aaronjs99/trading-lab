@@ -1,6 +1,6 @@
 # Local Portfolio Workflow
 
-`trading-lab` can read a small local portfolio snapshot so `tl decide`, `tl portfolio status`, and `tl portfolio gui` can account for current holdings, saved cash/account value, and manually tracked open orders.
+`trading-lab` can read a small local portfolio snapshot so `tl decide`, `tl portfolio status`, `tl portfolio gui`, and `tl start` can account for current holdings, saved cash/account value, and manually tracked open orders.
 
 This is local decision support only:
 
@@ -19,6 +19,8 @@ Use `tlfull` for the heavy refresh path. It updates market data, features, model
 tlfull
 tl decide
 tl portfolio status
+tl start
+# or, for foreground/debug mode:
 tl portfolio gui
 ```
 
@@ -65,8 +67,18 @@ tl update account-value 5000
 tl decide --risk-mode balanced
 tl portfolio snapshot --risk-mode balanced --notes "morning review"
 tl portfolio outcome-record --risk-mode balanced --notes "morning review"
-tl portfolio gui
+tl start
 ```
+
+## Command Cheat Sheet
+
+| Category | Commands |
+|---|---|
+| Daily | `tlfull`, `tl decide --risk-mode balanced`, `tl start`, `tl stop` |
+| Service health | `tl service status`, `tl stop`, inspect `data/runtime/tl_gui.log` |
+| Portfolio | `tl portfolio status`, `tl update buy TQQQ 1`, `tl update sell TQQQ 1`, `tl update set TQQQ 4` |
+| Orders | `tl update order buy TQQQ 10 58.00`, `tl update order sell TQQQ 4 68.50`, `tl update order clear TQQQ` |
+| History | `tl portfolio snapshot`, `tl portfolio outcome-record`, `tl portfolio outcome-update` |
 
 ## CSV Schemas
 
@@ -207,12 +219,31 @@ Future outcome fields are filled only from local market CSVs when enough later r
 
 ## GUI
 
-Start the local dashboard:
+Start the local dashboard in the background:
+
+```bash
+tl start
+```
+
+Check or stop it:
+
+```bash
+tl service status
+tl stop
+```
+
+The background service is available at:
+
+```text
+http://127.0.0.1:811/
+```
+
+For foreground/debug mode, use:
 
 ```bash
 tl portfolio gui
 ```
 
-The GUI binds to localhost only and uses existing local files. It can edit `positions.csv`, `open_orders.csv`, and `account.csv` through forms, then reload the dashboard. It does not run the full daily workflow, download market data, train models, generate plots, or connect to any broker.
+The GUI binds to localhost only and uses existing local files. `tl start` stores runtime PID/log files under gitignored `data/runtime/`. It can edit `positions.csv`, `open_orders.csv`, and `account.csv` through forms, then reload the dashboard. It does not run the full daily workflow, download market data, train models, generate plots, or connect to any broker.
 
 See [portfolio_gui.md](portfolio_gui.md) for a full tab-by-tab GUI walkthrough with safe synthetic examples.

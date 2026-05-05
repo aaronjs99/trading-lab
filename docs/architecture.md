@@ -15,6 +15,7 @@ src/trading_lab/
   features/    Market feature and prediction target generation.
   models/      Training, scoring, model zoo, quality, comparison, diagnostics.
   plots/       Dashboard/model plotting.
+  portfolio/   Local portfolio CSV state, GUI, snapshots, outcomes, review, and service manager.
   reports/     Trade-history and bucket reports.
   signals/     Allocation, ladders, orders, regime signals.
   strategy/    Strategy selection and live eligibility checks.
@@ -30,7 +31,7 @@ market CSVs
   -> latest signal and multi-horizon scoring
   -> walk-forward strategy optimization
   -> model zoo and quality gate
-  -> daily summary, action card, plots, and order checks
+  -> daily summary, action card, plots, order checks, and portfolio-aware decision output
 ```
 
 ## Privacy boundary
@@ -57,3 +58,28 @@ python scripts/audit_repo.py
 - Keep workflows reproducible.
 - Keep scripts thin.
 - Make weak model quality explicit in dashboard output.
+
+
+## Local service flow
+
+```text
+tl start
+  -> trading_lab.portfolio.service
+  -> background process
+  -> trading_lab.portfolio.gui
+  -> 127.0.0.1:811
+  -> local browser dashboard
+
+tl stop
+  -> reads data/runtime/tl_gui.pid
+  -> stops the local GUI process
+```
+
+Runtime service files are local and gitignored:
+
+```text
+data/runtime/tl_gui.pid
+data/runtime/tl_gui.log
+```
+
+The service layer only manages the local dashboard process. It does not connect to brokers, place orders, run `tlfull`, train models, or download market data.

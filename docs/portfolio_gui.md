@@ -1,6 +1,6 @@
 # Portfolio GUI
 
-`tl portfolio gui` starts a small local browser dashboard for reviewing the daily decision, local portfolio CSVs, manually tracked open orders, snapshots, and decision outcomes.
+`tl start` starts the portfolio GUI as a background local service. `tl portfolio gui` starts the same dashboard in foreground/debug mode for reviewing the daily decision, local portfolio CSVs, manually tracked open orders, snapshots, and decision outcomes.
 
 The GUI is local decision support only:
 
@@ -17,17 +17,32 @@ Do not share screenshots of your real dashboard if they contain account values, 
 
 ## Launch
 
+Recommended background service:
+
+```bash
+tl start
+```
+
+Check or stop the service:
+
+```bash
+tl service status
+tl stop
+```
+
+Foreground/debug mode:
+
 ```bash
 tl portfolio gui
 ```
 
-The command prints a local URL like:
+The dashboard is local-only and is available at:
 
 ```text
-Local-only portfolio GUI: http://127.0.0.1:8765/
+http://127.0.0.1:811/
 ```
 
-Open that URL in a browser on the same machine. The server is intended for local use only.
+Open that URL in a browser on the same machine. The server is intended for local use only. `tl start` writes PID/log files under gitignored `data/runtime/`.
 
 ## Top Controls
 
@@ -52,7 +67,7 @@ Cash: $1,000.00
 Risk mode is dashboard-wide. Changing it reloads the local page with the selected mode in the URL, for example:
 
 ```text
-http://127.0.0.1:8765/?tab=daily&risk_mode=balanced
+http://127.0.0.1:811/?tab=daily&risk_mode=balanced
 ```
 
 Risk modes:
@@ -231,10 +246,29 @@ Run `tlfull` when you want fresh market/model/report artifacts:
 ```bash
 tlfull
 tl decide --risk-mode balanced
-tl portfolio gui
+tl start
 ```
 
 Use the GUI between heavy refreshes for local review and local CSV edits. GUI refresh, tab switching, snapshot recording, and outcome updating stay lightweight.
+
+## Service Health
+
+Use these commands if the browser does not open or you want to verify the background process:
+
+```bash
+tl service status
+tl stop
+tl start
+```
+
+Runtime files live under gitignored local state:
+
+```text
+data/runtime/tl_gui.pid
+data/runtime/tl_gui.log
+```
+
+The service manager is local-only. It starts and stops the dashboard process; it does not run the full daily workflow, download data, train models, connect to a broker, or place orders.
 
 ## Privacy Checklist
 

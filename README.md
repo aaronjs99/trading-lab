@@ -40,7 +40,7 @@ It is built around one principle: **analyze locally, decide deliberately, and ne
 | **Modeling** | Train and compare regime models, run diagnostics, score latest conditions, and perform walk-forward strategy evaluation. |
 | **Daily decision support** | Generate fast `tl decide` guidance with BUY / HOLD / WAIT / REVIEW style output, ladder ideas, blockers, and risk-mode-aware advice. |
 | **Local portfolio state** | Track positions, open orders, cash, and account value using gitignored local CSVs. |
-| **Portfolio dashboard** | Launch a local browser GUI with Daily, Positions, Open orders, and Edit local CSVs tabs. |
+| **Portfolio dashboard** | Launch a local browser GUI with Daily, Positions, Open orders, and Edit local CSVs tabs. Run it in the background with `tl start` on `127.0.0.1:811`. |
 | **Risk modes** | Switch between `conservative`, `balanced`, and `aggressive` decision framing. |
 | **History tracking** | Record local portfolio snapshots and decision outcomes for future review. |
 | **Repo quality** | Includes CI, audit tooling, tests, public demo fixtures, docs, and release hygiene. |
@@ -54,7 +54,10 @@ tlfull
 # Lightweight decision, no retraining or broker access
 tl decide --risk-mode balanced
 
-# Local portfolio dashboard
+# Background local portfolio dashboard
+tl start
+
+# Foreground/debug local portfolio dashboard
 tl portfolio gui
 
 # Local-only portfolio updates
@@ -94,7 +97,10 @@ flowchart LR
 | `tl decide --risk-mode balanced` | Balanced risk/exposure + trend/ladder guidance. |
 | `tl decide --risk-mode aggressive` | Trend/risk-seeking framing while still showing exposure warnings. |
 | `tl portfolio status` | View local positions, open orders, account/cash, exposure, and trend review. |
-| `tl portfolio gui` | Launch the local browser dashboard at `127.0.0.1`. |
+| `tl start` | Start the local portfolio GUI as a background service on `127.0.0.1:811`. |
+| `tl stop` | Stop the background portfolio GUI service. |
+| `tl service status` | Check whether the background GUI service is running and where its log/PID files live. |
+| `tl portfolio gui` | Launch the local browser dashboard in the foreground/debug mode. |
 | `tl portfolio snapshot` | Append a local portfolio snapshot under gitignored `data/`. |
 | `tl portfolio outcome-record` | Record a local decision outcome row for future evaluation. |
 | `tl portfolio outcome-update` | Update tracked outcomes using local market CSVs. |
@@ -129,7 +135,21 @@ Historical tracking is stored under gitignored `data/processed/portfolio/`.
 The local GUI is a dashboard for viewing and editing local CSV state only.
 
 ```bash
+# Recommended background service
+tl start
+
+# Foreground/debug server
 tl portfolio gui
+
+# Service health
+tl service status
+tl stop
+```
+
+By default, the background service is available at:
+
+```text
+http://127.0.0.1:811/
 ```
 
 It includes:
@@ -149,8 +169,18 @@ This repo is designed for **manual decision support only**.
 - No automated order placement.
 - Local portfolio files live under gitignored `data/`.
 - GUI actions edit local CSVs only.
+- `tl start` / `tl stop` manage only the local GUI service.
 - Market/model refresh is explicit, not automatic.
 - Portfolio status, `tl decide`, snapshots, outcomes, and GUI render are local/read-only with respect to broker accounts.
+
+## Command cheat sheet
+
+| Category | Commands |
+|---|---|
+| Daily | `tlfull`, `tl decide --risk-mode balanced`, `tl start`, `tl stop` |
+| Portfolio | `tl portfolio status`, `tl update buy TQQQ 1`, `tl update order buy TQQQ 10 58.00` |
+| History | `tl portfolio snapshot`, `tl portfolio outcome-record`, `tl portfolio outcome-update` |
+| Dev | `tltest`, `python -B scripts/audit_repo.py` |
 
 ## Documentation
 
@@ -178,6 +208,7 @@ Release highlights:
 - Portfolio-aware `tl decide`.
 - Conservative, balanced, and aggressive risk modes.
 - Localhost portfolio GUI.
+- Background GUI service on `127.0.0.1:811` via `tl start` / `tl stop`.
 - Non-traded holding trend review.
 - Local snapshot history.
 - Decision outcome tracking.
