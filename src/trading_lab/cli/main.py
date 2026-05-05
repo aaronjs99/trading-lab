@@ -10,6 +10,14 @@ def _run(command: list[str]) -> int:
 
 
 def main() -> None:
+    argv_list = __import__("sys").argv[1:]
+    if argv_list and argv_list[0] in {"start", "stop", "service"}:
+        from trading_lab.portfolio import service as _tl_service
+
+        if argv_list[0] == "service":
+            raise SystemExit(_tl_service.main(argv_list[1:] or ["status"]))
+        raise SystemExit(_tl_service.main(argv_list))
+
     parser = argparse.ArgumentParser(prog="tl")
     sub = parser.add_subparsers(dest="command")
 
