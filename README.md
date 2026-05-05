@@ -271,17 +271,52 @@ python scripts/audit_repo.py
 python scripts/clean_cruft.py
 ```
 
-## Daily Use
+## Daily Workflow
 
-The normal daily flow is manual-first:
+The normal daily flow is manual-first and local-only. Use `tlfull` when you want the heavier refresh path that updates market/model reports, then use the lightweight commands for decision review and local portfolio state.
 
 ```bash
-./scripts/tl_full_daily.sh
-./scripts/tl_command.sh card
-./scripts/tl_command.sh decide --account-value 5000 --cash 1000 --position TQQQ:2
+tlfull
+tl decide
+tl portfolio status
+tl portfolio gui
 ```
 
-Use the output as decision support only. Review the model quality gate, selected strategy eligibility, current exposure, and open-order checks before making any manual trade.
+Risk mode changes the portfolio/order advice style without placing orders:
+
+```bash
+tl decide --risk-mode conservative
+tl decide --risk-mode balanced
+tl decide --risk-mode aggressive
+```
+
+Local account and portfolio edits update CSV files under `data/raw/portfolio/` only:
+
+```bash
+tl update cash AMOUNT
+tl update account-value AMOUNT
+tl update buy SYMBOL QTY
+tl update sell SYMBOL QTY
+tl update set SYMBOL QTY
+tl update order buy SYMBOL QTY LIMIT
+tl update order sell SYMBOL QTY LIMIT
+tl update order clear SYMBOL
+tl update order clear-all
+```
+
+A typical morning routine:
+
+```bash
+tlfull
+tl update cash 1000
+tl update account-value 5000
+tl decide --risk-mode balanced
+tl portfolio gui
+```
+
+Use the output as decision support only. Review the model quality gate, selected strategy eligibility, current exposure, and open-order checks before making any manual trade. The GUI only reads existing local files and edits local CSVs; it does not connect to a broker, log in to Robinhood, download prices, or place/cancel/modify real orders.
+
+See [docs/local_portfolio.md](docs/local_portfolio.md) for local portfolio CSV schemas, update commands, and risk-mode details.
 
 ## Configuration
 
